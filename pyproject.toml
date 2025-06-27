@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "semt_py"
-version = "0.1"
+version = "0.1.0"
 description = "A utility package for Semantic Enrichment of Tables"
 readme = "README.md"
 authors = [
@@ -15,6 +15,10 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Operating System :: OS Independent"
 ]
 dependencies = [
@@ -27,5 +31,17 @@ dependencies = [
     "python-dateutil"
 ]
 
+[project.urls]
+Homepage = "https://github.com/I2Tunimib/I2T-library"
+Repository = "https://github.com/I2Tunimib/I2T-library.git"
+Issues = "https://github.com/I2Tunimib/I2T-library/issues"
+
 [tool.hatch.build.targets.wheel]
 packages = ["semt_py"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/semt_py",
+    "/README.md",
+    "/LICENSE"
+]

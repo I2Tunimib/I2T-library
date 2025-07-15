@@ -77,9 +77,14 @@ class ExtensionManager:
                     if 'metadata' in cell and cell['metadata']:
                         # Take the first (best) reconciled entity from each cell
                         for metadata in cell['metadata'][:1]:  # Only take the first/best match
-                            if metadata.get('id') and metadata.get('id').startswith('wd:'):
+                            entity_id = metadata.get('id', '')
+                            # Handle both wd: and wdA: prefixes
+                            if entity_id and (entity_id.startswith('wd:') or entity_id.startswith('wdA:')):
+                                # Normalize to standard Wikidata format for the suggestion API
+                                normalized_id = entity_id.replace('wdA:', 'wd:') if entity_id.startswith('wdA:') else entity_id
+                                
                                 entity_data = {
-                                    'id': metadata.get('id', ''),
+                                    'id': normalized_id,
                                     'name': metadata.get('name', {}),
                                     'description': metadata.get('description', ''),
                                     'features': metadata.get('features', []),
@@ -118,7 +123,7 @@ class ExtensionManager:
             if debug:
                 print(f"Error getting property suggestions: {e}")
             return None
-        
+       
     def get_property_suggestions_for_column(self, table_data, reconciled_column_name, top_n=20, debug=False):
         """
         Get property suggestions and display them in a clean, user-friendly format.
@@ -309,6 +314,7 @@ class ExtensionManager:
                     # Get the entity ID from the first metadata entry
                     entity_id = cell['metadata'][0].get('id', '')
                     if entity_id:
+                        # Handle both wd: and wdA: prefixes - keep original format
                         items[reconciled_column_name][row_id] = entity_id
         
         payload = {
@@ -318,7 +324,7 @@ class ExtensionManager:
         }
         
         return payload
-    
+
     def _send_extension_request(self, payload, extender_id, debug=False):
         """
         Send a request to the extender service with the given payload.

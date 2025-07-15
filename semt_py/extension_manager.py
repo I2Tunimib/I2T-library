@@ -16,21 +16,187 @@ class ExtensionManager:
     via an API token.
     """
 
-    def __init__(self, base_url, token):
+    def __init__(self, base_url, auth_or_token):
         """
-        Initialize the ExtensionManager with the base URL and authentication token.
+        Initialize the ExtensionManager with the base URL and authentication.
 
         :param base_url: The base URL for the API.
-        :param token: The authentication token for accessing the API.
+        :param auth_or_token: Either an Auth_manager instance or a token string.
         """
         self.base_url = base_url.rstrip('/') + '/'
-        self.api_url = urljoin(self.base_url, 'api/extenders')
-        self.token = token
-        self.headers = {
-            'Authorization': f'Bearer {self.token}',
+        self.api_url = urljoin(self.base_url, 'api/')
+        
+        # Handle both Auth_manager and token string for backward compatibility
+        if hasattr(auth_or_token, 'get_token'):
+            # It's an Auth_manager instance
+            self.Auth_manager = auth_or_token
+            self.token = None
+        else:
+            # It's a token string
+            self.Auth_manager = None
+            self.token = auth_or_token
+
+    def _get_headers(self) -> Dict[str, str]:
+        """
+        Generate the headers required for API requests, including authorization.
+        """
+        # Use Auth_manager if available, otherwise use token string
+        if self.Auth_manager:
+            token = self.Auth_manager.get_token()
+        else:
+            token = self.token
+            
+        return {
+            'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
+    
+    def get_property_suggestions(self, table_data, reconciled_column_name, debug=False):
+        """
+        Get property suggestions for a reconciled column from Wikidata.
+        
+        :param table_data: The table containing reconciled data
+        :param reconciled_column_name: Name of the reconciled column
+        :param debug: Boolean flag to enable/disable debug information
+        :return: List of suggested properties with counts and percentages
+        """
+        try:
+            # Extract reconciled entities from the table
+            entities_data = []
+            
+            if 'rows' not in table_data:
+                if debug:
+                    print("No rows found in table data")
+                return None
+                
+            # Extract entities from each row's reconciled column
+            for row_id, row_data in table_data['rows'].items():
+                if reconciled_column_name in row_data['cells']:
+                    cell = row_data['cells'][reconciled_column_name]
+                    if 'metadata' in cell and cell['metadata']:
+                        # Take the first (best) reconciled entity from each cell
+                        for metadata in cell['metadata'][:1]:  # Only take the first/best match
+                            if metadata.get('id') and metadata.get('id').startswith('wd:'):
+                                entity_data = {
+                                    'id': metadata.get('id', ''),
+                                    'name': metadata.get('name', {}),
+                                    'description': metadata.get('description', ''),
+                                    'features': metadata.get('features', []),
+                                    'match': metadata.get('match', True),
+                                    'score': metadata.get('score', 100),
+                                    'type': metadata.get('type', [])
+                                }
+                                entities_data.append(entity_data)
+                                break  # Only take one entity per row
+            
+            if not entities_data:
+                if debug:
+                    print("No reconciled entities found in the table")
+                return None
+            
+            # Send request to suggestion API
+            url = urljoin(self.api_url, 'suggestion/wikidata')
+            headers = self._get_headers()
+            
+            if debug:
+                print(f"Sending suggestion request with {len(entities_data)} entities:")
+                print(json.dumps(entities_data[:2], indent=2))  # Show first 2 entities
+            
+            response = requests.post(url, headers=headers, json=entities_data)
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if debug:
+                print(f"Suggestion response status: {response.status_code}")
+                print(f"Number of suggested properties: {len(result.get('data', []))}")
+            
+            return result
+        
+        except requests.exceptions.RequestException as e:
+            if debug:
+                print(f"Error getting property suggestions: {e}")
+            return None
+        
+    def get_property_suggestions_for_column(self, table_data, reconciled_column_name, top_n=20, debug=False):
+        """
+        Get property suggestions and display them in a clean, user-friendly format.
+        
+        :param table_data: The table containing reconciled data
+        :param reconciled_column_name: Name of the reconciled column
+        :param top_n: Number of top suggestions to display (default: 20)
+        :param debug: Boolean flag to enable/disable debug information
+        :return: Formatted suggestions data
+        """
+        suggestions = self.get_property_suggestions(table_data, reconciled_column_name, debug)
+        
+        if not suggestions or 'data' not in suggestions:
+            print(f"No suggestions found for column '{reconciled_column_name}'")
+            return None
+        
+        # Always show the clean formatted output
+        print(f"\nTop {top_n} property suggestions for column '{reconciled_column_name}':")
+        print("=" * 80)
+        
+        for i, prop in enumerate(suggestions['data'][:top_n], 1):
+            # Round percentage to 1 decimal place for cleaner display
+            percentage = round(prop['percentage'], 1)
+            print(f"{i:2d}. {prop['id']}: {prop['label']} ({percentage}% coverage)")
+        
+        print("=" * 80)
+        print(f"Total properties available: {len(suggestions['data'])}")
+        
+        return suggestions
+    
+    def get_property_suggestions_simple(self, table_data, reconciled_column_name, top_n=10):
+        """
+        Get property suggestions with minimal output - just returns the data.
+        
+        :param table_data: The table containing reconciled data
+        :param reconciled_column_name: Name of the reconciled column
+        :param top_n: Number of top suggestions to return (default: 10)
+        :return: List of top suggestions
+        """
+        suggestions = self.get_property_suggestions(table_data, reconciled_column_name, debug=False)
+        
+        if not suggestions or 'data' not in suggestions:
+            return []
+        
+        # Return just the top N suggestions with clean percentage values
+        top_suggestions = []
+        for prop in suggestions['data'][:top_n]:
+            top_suggestions.append({
+                'id': prop['id'],
+                'label': prop['label'],
+                'percentage': round(prop['percentage'], 1),
+                'count': prop['count']
+            })
+        
+        return top_suggestions
+
+    def display_suggestions_table(self, suggestions_data, title="Property Suggestions"):
+        """
+        Display suggestions in a nice table format using pandas.
+        
+        :param suggestions_data: List of suggestion dictionaries
+        :param title: Title for the table
+        """
+        if not suggestions_data:
+            print("No suggestions to display")
+            return
+        
+        import pandas as pd
+        
+        df = pd.DataFrame(suggestions_data)
+        df.index = df.index + 1  # Start index from 1
+        
+        print(f"\n{title}:")
+        print("=" * 60)
+        print(df.to_string(index=True, 
+                          columns=['id', 'label', 'percentage'], 
+                          formatters={'percentage': '{:.1f}%'.format}))
+        print("=" * 60)
 
     def _create_backend_payload(self, reconciled_json):
         """
@@ -75,18 +241,10 @@ class ExtensionManager:
             }
         }
         return payload
-
+    
     def _prepare_input_data_meteo(self, table, reconciliated_column_name, id_extender, properties, date_column_name, decimal_format):
         """
         Prepare input data for the meteoPropertiesOpenMeteo extender.
-
-        :param table: The input table containing data.
-        :param reconciliated_column_name: The name of the reconciliated column.
-        :param id_extender: The ID of the extender to use.
-        :param properties: The properties to extend.
-        :param date_column_name: The name of the date column.
-        :param decimal_format: The format for decimal values.
-        :return: A dictionary representing the payload for the extender.
         """
         dates = {row_id: [row['cells'][date_column_name]['label'], [], date_column_name] for row_id, row in table['rows'].items()} if date_column_name else {}
         items = {reconciliated_column_name: {row_id: row['cells'][reconciliated_column_name]['metadata'][0]['id'] for row_id, row in table['rows'].items()}}
@@ -105,12 +263,6 @@ class ExtensionManager:
     def _prepare_input_data_reconciled(self, table, reconciliated_column_name, properties, id_extender):
         """
         Prepare input data for a reconciled column extender.
-
-        :param table: The input table containing data.
-        :param reconciliated_column_name: The name of the reconciliated column.
-        :param properties: The properties to extend.
-        :param id_extender: The ID of the extender to use.
-        :return: A dictionary representing the payload for the extender.
         """
         column_data = {
             row_id: [
@@ -135,31 +287,76 @@ class ExtensionManager:
         }
         return payload
 
-    def _send_extension_request(self, payload, debug=False):
+    def _prepare_input_data_wikidata_property(self, table, reconciled_column_name, properties, id_extender):
+        """
+        Prepare input data for the wikidataPropertySPARQL extender.
+        
+        :param table: The input table containing data.
+        :param reconciled_column_name: The name of the reconciled column.
+        :param properties: Space-separated string of property IDs (e.g., "P625 P131 P373").
+        :param id_extender: The ID of the extender to use.
+        :return: A dictionary representing the payload for the extender.
+        """
+        # Extract reconciled entity IDs from the table
+        items = {
+            reconciled_column_name: {}
+        }
+        
+        for row_id, row in table['rows'].items():
+            if reconciled_column_name in row['cells']:
+                cell = row['cells'][reconciled_column_name]
+                if 'metadata' in cell and cell['metadata']:
+                    # Get the entity ID from the first metadata entry
+                    entity_id = cell['metadata'][0].get('id', '')
+                    if entity_id:
+                        items[reconciled_column_name][row_id] = entity_id
+        
+        payload = {
+            "serviceId": id_extender,
+            "items": items,
+            "properties": properties  # Space-separated string of property IDs
+        }
+        
+        return payload
+    
+    def _send_extension_request(self, payload, extender_id, debug=False):
         """
         Send a request to the extender service with the given payload.
 
         :param payload: The payload to send to the extender service.
+        :param extender_id: The ID of the extender service.
         :param debug: Boolean flag to enable/disable debug information.
         :return: The JSON response from the extender service.
         :raises: HTTPError if the request fails.
         """
         try:
+            # Use different endpoints for different extenders
+            if extender_id == 'wikidataPropertySPARQL':
+                url = urljoin(self.api_url, 'extenders/wikidata/entities')
+            else:
+                url = urljoin(self.api_url, 'extenders')
+            
+            headers = self._get_headers()
+            
             if debug:
-                print("Sending payload to extender service:")
+                print(f"Sending payload to extender service ({extender_id}):")
+                print(f"URL: {url}")
                 print(json.dumps(payload, indent=2))
-            response = requests.post(self.api_url, headers=self.headers, json=payload)
+            
+            response = requests.post(url, headers=headers, json=payload)
             response.raise_for_status()
+            
             if debug:
                 print("Received response from extender service:")
                 print(f"Status Code: {response.status_code}")
-                print(f"Response Content: {response.text}")
+                print(f"Response Content: {response.text[:500]}...")  # First 500 chars
+            
             return response.json()
         except requests.exceptions.HTTPError as http_err:
             if debug:
                 print(f"HTTP error occurred: {http_err}")
-                if response is not None:
-                    print(f"Response Content: {response.text}")
+                if hasattr(http_err, 'response') and http_err.response is not None:
+                    print(f"Response Content: {http_err.response.text}")
             raise
         except Exception as err:
             if debug:
@@ -174,30 +371,60 @@ class ExtensionManager:
         :param extension_response: The response from the extender service.
         :return: The extended table with new columns added.
         """
+        # Update table metadata
+        if 'meta' in extension_response:
+            table['table'].update(extension_response['meta'])
+        
+        # Add new columns from the extension response
         for column_name, column_data in extension_response['columns'].items():
             table['columns'][column_name] = {
                 'id': column_name,
                 'label': column_data['label'],
                 'status': 'extended',
                 'context': {},
-                'metadata': [],
+                'metadata': column_data.get('metadata', []),
                 'kind': 'extended',
                 'annotationMeta': {}
             }
+            
+            # Add cells for this column
             for row_id, cell_data in column_data['cells'].items():
-                table['rows'][row_id]['cells'][column_name] = {
-                    'id': f"{row_id}${column_name}",
-                    'label': cell_data['label'],
-                    'metadata': cell_data['metadata']
-                }
+                if row_id in table['rows']:
+                    table['rows'][row_id]['cells'][column_name] = {
+                        'id': f"{row_id}${column_name}",
+                        'label': cell_data['label'],
+                        'metadata': cell_data.get('metadata', [])
+                    }
+        
+        # Update table column and cell counts
+        table['table']['nCols'] = len(table['columns'])
+        table['table']['nCells'] = sum(len(row['cells']) for row in table['rows'].values())
+        
+        # Add original column metadata if present
+        if 'originalColMeta' in extension_response:
+            original_col_name = extension_response['originalColMeta']['originalColName']
+            if original_col_name in table['columns']:
+                if 'metadata' not in table['columns'][original_col_name]:
+                    table['columns'][original_col_name]['metadata'] = []
+                table['columns'][original_col_name]['metadata'].extend(
+                    extension_response['originalColMeta'].get('properties', [])
+                )
+        
         return table
-
+    
     def extend_column(self, table, column_name, extender_id, properties, other_params=None, debug=False):
         """
         Standardized method to extend a column using a specified extender.
 
         This method prepares the input data, sends a request to the extender service,
         and composes the extended table from the response.
+        
+        :param table: The table to extend
+        :param column_name: The name of the column to extend
+        :param extender_id: The ID of the extender service
+        :param properties: Properties to extend (format depends on extender)
+        :param other_params: Additional parameters for specific extenders
+        :param debug: Enable debug output
         """
         other_params = other_params or {}
 
@@ -209,41 +436,50 @@ class ExtensionManager:
             if not date_column_name or not decimal_format:
                 raise ValueError("date_column_name and decimal_format are required for meteoPropertiesOpenMeteo extender")
             input_data = self._prepare_input_data_meteo(table, column_name, extender_id, properties, date_column_name, decimal_format)
+        elif extender_id == 'wikidataPropertySPARQL':
+            # Validate that the column is reconciled
+            if column_name not in table['columns']:
+                raise ValueError(f"Column '{column_name}' not found in table")
+            
+            column_status = table['columns'][column_name].get('status', '')
+            if column_status != 'reconciliated':
+                raise ValueError(f"Column '{column_name}' must be reconciled before extending with Wikidata properties")
+            
+            # Properties should be a space-separated string of property IDs
+            if not isinstance(properties, str):
+                raise ValueError("Properties for wikidataPropertySPARQL should be a space-separated string (e.g., 'P625 P131 P373')")
+            
+            input_data = self._prepare_input_data_wikidata_property(table, column_name, properties, extender_id)
         else:
             raise ValueError(f"Unsupported extender: {extender_id}")
 
-        extension_response = self._send_extension_request(input_data, debug)
-        extended_table = self._compose_extension_table(table, extension_response)
+        extension_response = self._send_extension_request(input_data, extender_id, debug)
+        extended_table = self._compose_extension_table(copy.deepcopy(table), extension_response)
         backend_payload = self._create_backend_payload(extended_table)
 
         if debug:
-            print("Extended table:", json.dumps(extended_table, indent=2))
-            print("Backend payload:", json.dumps(backend_payload, indent=2))
+            print("Extension completed successfully!")
+            print(f"Added {len(extension_response.get('columns', {}))} new columns")
         else:
             print("Column extended successfully!")
 
         return extended_table, backend_payload
-
+    
     def _get_extender_data(self, debug=False):
         """
         Retrieves extender data from the backend with optional debug output.
-
-        :param debug: If True, print detailed debug information.
-        :return: JSON data from the API if successful, None otherwise.
         """
         try:
-            # Correctly construct the URL
             url = urljoin(self.api_url, 'extenders/list')
-            response = requests.get(url, headers=self.headers)
+            headers = self._get_headers()
+            response = requests.get(url, headers=headers)
             response.raise_for_status()
             
-            # Debugging output
             if debug:
                 print(f"Response status code: {response.status_code}")
                 print(f"Response headers: {response.headers}")
-                print(f"Response content: {response.text[:500]}...")  # Print first 500 characters for clarity
+                print(f"Response content: {response.text[:500]}...")
             
-            # Check if the response is JSON
             content_type = response.headers.get('Content-Type', '')
             if 'application/json' not in content_type:
                 if debug:
@@ -256,27 +492,22 @@ class ExtensionManager:
         except requests.RequestException as e:
             if debug:
                 print(f"Error occurred while retrieving extender data: {e}")
-                if e.response is not None:
+                if hasattr(e, 'response') and e.response is not None:
                     print(f"Response status code: {e.response.status_code}")
-                    print(f"Response content: {e.response.text[:500]}...")  # Show first 500 characters of error content
+                    print(f"Response content: {e.response.text[:500]}...")
             return None
         except json.JSONDecodeError as e:
             if debug:
                 print(f"JSON decoding error: {e}")
                 print(f"Raw response content: {response.text}")
             return None
-    
+           
     def _clean_service_list(self, service_list):
         """
         Cleans and formats the service list into a DataFrame.
-
-        :param service_list: Data regarding available services.
-        :return: DataFrame containing extenders' information.
         """
-        # Initialize a DataFrame with the specified columns
         reconciliators = pd.DataFrame(columns=["id", "relativeUrl", "name"])
         
-        # Populate the DataFrame with the extenders' information
         for reconciliator in service_list:
             reconciliators.loc[len(reconciliators)] = [
                 reconciliator["id"], reconciliator.get("relativeUrl", ""), reconciliator["name"]
@@ -299,20 +530,15 @@ class ExtensionManager:
             if debug:
                 print("Failed to retrieve extenders data.")
             return None
-
+          
     def get_extender_parameters(self, extender_id, print_params=False):
         """
-        Retrieves and formats the parameters needed for a specific extender service in a readable vertical structure.
+        Retrieves and formats the parameters needed for a specific extender service.
         """
-        
         def format_extender_params(param_dict):
-            """
-            Formats the extender parameters dictionary into a well-structured vertical format for readability.
-            """
             output = []
             output.append("=== Extender Parameters ===\n")
             
-            # Process mandatory parameters
             output.append("Mandatory Parameters:\n")
             if param_dict['mandatory']:
                 for param in param_dict['mandatory']:
@@ -326,11 +552,10 @@ class ExtensionManager:
                     if param['options']:
                         options_str = ', '.join([opt['label'] for opt in param['options']])
                         output.append(f"    - Options: {options_str}")
-                    output.append("")  # Add a blank line between parameters
+                    output.append("")
             else:
                 output.append("  No mandatory parameters available.\n")
     
-            # Process optional parameters
             output.append("Optional Parameters:\n")
             if param_dict['optional']:
                 for param in param_dict['optional']:
@@ -344,23 +569,20 @@ class ExtensionManager:
                     if param['options']:
                         options_str = ', '.join([opt['label'] for opt in param['options']])
                         output.append(f"    - Options: {options_str}")
-                    output.append("")  # Add a blank line between parameters
+                    output.append("")
             else:
                 output.append("  No optional parameters available.\n")
     
             return "\n".join(output)
         
-        # Retrieve extender data
         extender_data = self._get_extender_data()
         if not extender_data:
             print(f"No data found for extender ID '{extender_id}'.")
             return None
         
-        # Find the specific extender by ID
         for extender in extender_data:
             if extender['id'] == extender_id:
                 parameters = extender.get('formParams', [])
-                # Organize parameters into mandatory and optional
                 mandatory_params = [
                     {
                         'name': param['id'],
@@ -384,22 +606,18 @@ class ExtensionManager:
                     } for param in parameters if 'required' not in param.get('rules', [])
                 ]
                 
-                # Combine into parameter dictionary
                 param_dict = {
                     'mandatory': mandatory_params,
                     'optional': optional_params
                 }
     
-                # Format the output
                 formatted_output = format_extender_params(param_dict)
                 
-                # Print the formatted parameters if requested
                 if print_params:
                     print(formatted_output)
     
                 return formatted_output
     
-        # If the extender was not found
         print(f"Extender with ID '{extender_id}' not found.")
         return None
     

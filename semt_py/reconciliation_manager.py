@@ -237,7 +237,7 @@ class ReconciliationManager:
         
         # Map reconciliator_id to the actual serviceId expected by the backend
         service_id_mapping = {
-            'wikidata': 'wikidataOpenRefine',
+            'wikidataOpenRefine': 'wikidataOpenRefine',
             'geocodingGeonames': 'geocodingGeonames', 
             'wikidataAlligator': 'wikidataAlligator',
             'geocodingHere': 'geocodingHere',
@@ -285,7 +285,7 @@ class ReconciliationManager:
                         col_value = row_data['cells'].get(col_name, {}).get('label', '')
                         input_data['additionalColumns'][col_name][row_id] = [col_value, [], col_name]
 
-        elif reconciliator_id in ['wikidata']:
+        elif reconciliator_id in ['wikidataOpenRefine']:
             # Simple structure - just serviceId and items (no additional processing needed)
             pass
 
@@ -356,7 +356,7 @@ class ReconciliationManager:
                     'reconciliated': reconciliated_count
                 }
             },
-            'wikidata': {
+            'wikidataOpenRefine': {
                 'wd': {
                     'uri': 'https://www.wikidata.org/wiki/',
                     'total': reconciliated_count,
@@ -520,7 +520,7 @@ class ReconciliationManager:
 
     def _create_uri_from_id(self, id_string, reconciliator_id):
         """Create appropriate URI based on ID and service"""
-        if reconciliator_id in ['wikidata', 'wikidataAlligator']:
+        if reconciliator_id in ['wikidataOpenRefine', 'wikidataAlligator']:
             if id_string.startswith('wd:') or id_string.startswith('wdA:'):
                 entity_id = id_string.split(':')[-1]
                 return f"https://www.wikidata.org/wiki/{entity_id}"
@@ -621,7 +621,7 @@ class ReconciliationManager:
         """
         valid_reconciliators = [
             'geocodingHere', 'geocodingGeonames', 'geonames', 
-            'wikidata', 'wikidataAlligator'
+            'wikidataOpenRefine', 'wikidataAlligator'
         ]
         
         if reconciliator_id not in valid_reconciliators:

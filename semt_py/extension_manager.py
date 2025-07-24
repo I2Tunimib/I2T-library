@@ -1,6 +1,7 @@
 import requests
 import json
 import copy
+import re
 import pandas as pd
 from urllib.parse import urljoin
 from copy import deepcopy
@@ -371,53 +372,159 @@ class ExtensionManager:
 
     def _compose_extension_table(self, table, extension_response):
         """
-        Compose an extended table from the extension response.
-
-        :param table: The original table to extend.
-        :param extension_response: The response from the extender service.
-        :return: The extended table with new columns added.
+        Compose an extended table from the extension response, distinguishing
+        correctly between entity columns and literal columns.
         """
-        # Update table metadata
+        # ── header meta ────────────────────────────────────────────────────────────
         if 'meta' in extension_response:
             table['table'].update(extension_response['meta'])
-        
-        # Add new columns from the extension response
-        for column_name, column_data in extension_response['columns'].items():
-            table['columns'][column_name] = {
-                'id': column_name,
-                'label': column_data['label'],
-                'status': 'extended',
-                'context': {},
-                'metadata': column_data.get('metadata', []),
-                'kind': 'extended',
+
+        # map property-id → new column name  (for cross-references later)
+        property_id_to_column_name = {}
+        for col_name, col_data in extension_response['columns'].items():
+            for md in col_data.get('metadata', []):
+                property_id_to_column_name[md.get('id')] = col_name
+
+        # ── create / fill columns and cells ────────────────────────────────────────
+        for col_name, col_data in extension_response['columns'].items():
+
+            # Decide if this column contains entities
+            has_entities = self._column_has_entity_metadata(col_data)
+            status       = 'reconciliated' if has_entities else 'empty'
+            context      = self._extract_context_from_cells(col_data) if has_entities else {}
+
+            table['columns'][col_name] = {
+                'id'           : col_name,
+                'label'        : col_data['label'],
+                'status'       : status,
+                'context'      : context,
+                'metadata'     : col_data.get('metadata', []),
                 'annotationMeta': {}
             }
-            
-            # Add cells for this column
-            for row_id, cell_data in column_data['cells'].items():
-                if row_id in table['rows']:
-                    table['rows'][row_id]['cells'][column_name] = {
-                        'id': f"{row_id}${column_name}",
-                        'label': cell_data['label'],
-                        'metadata': cell_data.get('metadata', [])
-                    }
-        
-        # Update table column and cell counts
-        table['table']['nCols'] = len(table['columns'])
-        table['table']['nCells'] = sum(len(row['cells']) for row in table['rows'].values())
-        
-        # Add original column metadata if present
+
+            # cells
+            for row_id, cell_data in col_data['cells'].items():
+                if row_id not in table['rows']:
+                    continue
+
+                raw_meta = cell_data.get('metadata', [])
+
+                if self._metadata_is_entity(raw_meta):
+                    cell_meta      = raw_meta
+                    annotation_meta = self._create_annotation_meta_from_metadata(raw_meta)
+                else:
+                    cell_meta      = []                             # literal → no metadata
+                    annotation_meta = {'annotated': False,
+                                    'match'     : {'value': False}}
+
+                table['rows'][row_id]['cells'][col_name] = {
+                    'id'            : f"{row_id}${col_name}",
+                    'label'         : cell_data['label'],
+                    'metadata'      : cell_meta,
+                    'annotationMeta': annotation_meta
+                }
+
+        # ── cross-reference properties back to the original reconciled column ─────
         if 'originalColMeta' in extension_response:
-            original_col_name = extension_response['originalColMeta']['originalColName']
-            if original_col_name in table['columns']:
-                if 'metadata' not in table['columns'][original_col_name]:
-                    table['columns'][original_col_name]['metadata'] = []
-                table['columns'][original_col_name]['metadata'].extend(
-                    extension_response['originalColMeta'].get('properties', [])
-                )
-        
+            orig_col = extension_response['originalColMeta']['originalColName']
+            if orig_col in table['columns']:
+                table['columns'][orig_col]['kind'] = 'entity'
+                main_md = table['columns'][orig_col]['metadata'][0]
+
+                main_md.setdefault('property', [])
+                for prop in extension_response['originalColMeta'].get('properties', []):
+                    col_for_prop = property_id_to_column_name.get(prop['id'])
+                    if col_for_prop:
+                        main_md['property'].append({
+                            'id'   : prop['id'],
+                            'obj'  : col_for_prop,
+                            'name' : prop.get('name', ''),
+                            'match': True,
+                            'score': 1
+                        })
+
+        # ── update basic counts ────────────────────────────────────────────────────
+        table['table']['nCols']  = len(table['columns'])
+        table['table']['nCells'] = sum(len(r['cells']) for r in table['rows'].values())
+
         return table
-    
+
+    def _column_has_entity_metadata(self, column_data):
+        """
+        A column is considered an ‘entity column’ when at least one of its cells
+        carries entity metadata (metadata whose id is a Wikidata Q-identifier).
+        """
+        if 'cells' not in column_data:
+            return False
+
+        for cell_data in column_data['cells'].values():
+            if self._metadata_is_entity(cell_data.get('metadata', [])):
+                return True
+        return False
+
+    def _is_entity_id(self, id_string: str) -> bool:
+        """
+        Return True iff id_string denotes a Wikidata entity (Q-identifier),
+        i.e.  wd:Q123  – wdA:Q123  –  …/Q123
+        """
+        if not id_string:
+            return False
+
+        # Full IRI?  keep only the last path segment
+        if id_string.startswith(("http://", "https://")):
+            id_string = id_string.rsplit("/", 1)[-1]
+
+        # Strip namespace such as 'wd:' or 'wdA:'
+        id_string = id_string.split(":", 1)[-1]
+
+        return bool(re.fullmatch(r"Q\d+", id_string))
+
+    def _metadata_is_entity(self, md_list) -> bool:
+        """
+        True when the first metadata element refers to a Wikidata entity.
+        """
+        return bool(md_list) and self._is_entity_id(md_list[0].get("id", ""))
+
+    def _extract_context_from_cells(self, column_data):
+        """
+        Build reconciliation context (counts) for entity columns only.
+        """
+        if 'cells' not in column_data:
+            return {}
+
+        total_cells = len(column_data['cells'])
+        reconciled_cells = sum(
+            1 for cell in column_data['cells'].values()
+            if self._metadata_is_entity(cell.get('metadata', []))
+        )
+
+        return {
+            'wd': {
+                'uri': 'https://www.wikidata.org/wiki/',
+                'total': total_cells,
+                'reconciliated': reconciled_cells
+            }
+        }
+
+    def _create_annotation_meta_from_metadata(self, metadata_list):
+        """
+        Create annotation metadata from existing cell metadata.
+        """
+        if not metadata_list:
+            return {
+                'annotated': False,
+                'match': {'value': False}
+            }
+        
+        scores = [m.get('score', 100) for m in metadata_list if 'score' in m]
+        
+        return {
+            'annotated': True,
+            'match': {'value': True, 'reason': 'reconciliator'},
+            'lowestScore': min(scores) if scores else 100,
+            'highestScore': max(scores) if scores else 100
+        }
+
     def extend_column(self, table, column_name, extender_id, properties, other_params=None, debug=False):
         """
         Standardized method to extend a column using a specified extender.

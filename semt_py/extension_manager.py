@@ -248,50 +248,87 @@ class ExtensionManager:
         }
         return payload
     
-    def _prepare_input_data_meteo(self, table, reconciliated_column_name, id_extender, properties, date_column_name, decimal_format):
+    def _prepare_input_data_meteo(
+        self,
+        table,                    # <- original table
+        reconciled_column_name,   # <- the geo column
+        id_extender,              # <- always  meteoPropertiesOpenMeteo
+        properties,               # <- list of weather parameters
+        date_column_name,
+        decimal_format            # <- "." or "comma"
+    ):
         """
-        Prepare input data for the meteoPropertiesOpenMeteo extender.
+        Create the payload for the meteoPropertiesOpenMeteo extender but
+        silently skip rows that have no (geo) entity metadata.
         """
-        dates = {row_id: [row['cells'][date_column_name]['label'], [], date_column_name] for row_id, row in table['rows'].items()} if date_column_name else {}
-        items = {reconciliated_column_name: {row_id: row['cells'][reconciliated_column_name]['metadata'][0]['id'] for row_id, row in table['rows'].items()}}
-        weather_params = properties if date_column_name else []
-        decimal_format = [decimal_format] if decimal_format else []
 
-        payload = {
+        valid_rows = {}
+        for row_id, row in table['rows'].items():
+            cell_meta = row['cells'][reconciled_column_name].get('metadata', [])
+            if cell_meta:
+                # take the *first* entity id
+                valid_rows[row_id] = cell_meta[0]['id']
+
+        if not valid_rows:
+            raise ValueError(
+                f"No rows in column '{reconciled_column_name}' contain "
+                "reconciled coordinates – nothing to extend."
+            )
+
+        # keep the two maps (items / dates) in sync
+        items = {reconciled_column_name: valid_rows}
+        dates = {
+            row_id: [table['rows'][row_id]['cells'][date_column_name]['label'],
+                    [], date_column_name]
+            for row_id in valid_rows.keys()
+        }
+
+        return {
+            "serviceId"    : id_extender,
+            "items"        : items,
+            "dates"        : dates,
+            "weatherParams": properties,
+            "decimalFormat": [decimal_format] if decimal_format else []
+        }
+
+    def _prepare_input_data_reconciled(
+        self,
+        table,
+        reconciled_column_name,
+        properties,
+        id_extender
+    ):
+        """
+        Same idea as above: build the payload **only** with rows that
+        actually have an entity id.
+        """
+
+        items = {reconciled_column_name: {}}
+        column_map = {}
+
+        for row_id, row in table['rows'].items():
+            meta = row['cells'][reconciled_column_name].get('metadata', [])
+            if meta:
+                entity_id = meta[0]['id']
+                items[reconciled_column_name][row_id] = entity_id
+                column_map[row_id] = [
+                    row['cells'][reconciled_column_name]['label'],
+                    meta,
+                    reconciled_column_name
+                ]
+
+        if not items[reconciled_column_name]:
+            raise ValueError(
+                f"No reconciled entities found in column '{reconciled_column_name}'. "
+                "The column must be reconciled before you can extend it."
+            )
+
+        return {
             "serviceId": id_extender,
-            "dates": dates,
-            "decimalFormat": decimal_format,
-            "items": items,
-            "weatherParams": weather_params
+            "items"    : items,
+            "column"   : column_map,
+            "property" : properties
         }
-        return payload
-
-    def _prepare_input_data_reconciled(self, table, reconciliated_column_name, properties, id_extender):
-        """
-        Prepare input data for a reconciled column extender.
-        """
-        column_data = {
-            row_id: [
-                row['cells'][reconciliated_column_name]['label'],
-                row['cells'][reconciliated_column_name].get('metadata', []),
-                reconciliated_column_name
-            ] for row_id, row in table['rows'].items()
-        }
-        items = {
-            reconciliated_column_name: {
-                row_id: row['cells'][reconciliated_column_name]['metadata'][0]['id']
-                for row_id, row in table['rows'].items()
-                if 'metadata' in row['cells'][reconciliated_column_name] and row['cells'][reconciliated_column_name]['metadata']
-            }
-        }
-
-        payload = {
-            "serviceId": id_extender,
-            "column": column_data,
-            "property": properties,
-            "items": items
-        }
-        return payload
 
     def _prepare_input_data_wikidata_property(self, table, reconciled_column_name, properties, id_extender):
         """
@@ -525,59 +562,160 @@ class ExtensionManager:
             'highestScore': max(scores) if scores else 100
         }
 
-    def extend_column(self, table, column_name, extender_id, properties, other_params=None, debug=False):
+    def _build_mini_table(self,
+                      full_table : dict,
+                      main_col   : str,
+                      extra_cols : list[str] | None = None):
         """
-        Standardized method to extend a column using a specified extender.
+        Return  mini_table, key_map
 
-        This method prepares the input data, sends a request to the extender service,
-        and composes the extended table from the response.
-        
-        :param table: The table to extend
-        :param column_name: The name of the column to extend
-        :param extender_id: The ID of the extender service
-        :param properties: Properties to extend (format depends on extender)
-        :param other_params: Additional parameters for specific extenders
-        :param debug: Enable debug output
+        • mini_table  – exact copy of *full_table* but contains only the FIRST
+        row for every distinct combination   main_col (+ extra_cols).
+
+        • key_map     – dict  original_row_id  →  key_tuple
+        (needed later to push the answers back to duplicates).
         """
-        other_params = other_params or {}
+        extra_cols = extra_cols or []
 
+        def row_key(row):
+            parts = [row['cells'][main_col]['label']]
+            for col in extra_cols:
+                parts.append(row['cells'][col]['label'])
+            return tuple(parts)
+
+        key2row   = {}          # deduplication map
+        key_map   = {}          # original row_id → tuple key
+
+        for row_id, row in full_table['rows'].items():
+            k = row_key(row)
+            key_map[row_id] = k
+            if k not in key2row:              # keep FIRST seen row for that key
+                key2row[k] = row_id
+
+        # build reduced copy ----------------------------------------------------
+        mini_table         = copy.deepcopy(full_table)
+        mini_table['rows'] = {rid: full_table['rows'][rid] for rid in key2row.values()}
+
+        mini_table['table']['nRows']  = len(mini_table['rows'])
+        mini_table['table']['nCells'] = len(mini_table['rows']) * len(full_table['columns'])
+
+        return mini_table, key_map
+
+    def _expand_results_to_duplicates(self,
+                                  full_table : dict,
+                                  mini_table : dict,
+                                  key_map    : dict,
+                                  main_col   : str,
+                                  extra_cols : list[str] | None = None):
+        """
+        Insert the metadata obtained for every DISTINCT value back into EVERY
+        row that carries the same value.
+        """
+        extra_cols = extra_cols or []
+
+        def row_key(row):
+            parts = [row['cells'][main_col]['label']]
+            for col in extra_cols:
+                parts.append(row['cells'][col]['label'])
+            return tuple(parts)
+
+        # 1) build  key → metadata  lookup using the reconciled mini-table ------
+        key2meta = {}
+        for row in mini_table['rows'].values():
+            k = row_key(row)
+            key2meta[k] = row['cells'][main_col]['metadata']
+
+        # 2) copy to *all* rows --------------------------------------------------
+        for row_id, row in full_table['rows'].items():
+            k = key_map[row_id]
+            if k in key2meta:
+                cell = row['cells'][main_col]
+                cell['metadata']       = copy.deepcopy(key2meta[k])
+                cell['annotationMeta'] = self._create_annotation_meta_from_metadata(
+                                            cell['metadata']
+                                        )
+
+        # 3) update simple counters ---------------------------------------------
+        full_table['table']['nCellsReconciliated'] = sum(
+            1 for r in full_table['rows'].values()
+            for c in r['cells'].values()
+            if c.get('annotationMeta', {}).get('annotated', False)
+        )
+        return full_table
+
+    def extend_column(self,
+                  table              : dict,
+                  column_name        : str,
+                  extender_id        : str,
+                  properties,
+                  other_params=None,
+                  *,
+                  deduplicate        : bool = False,      # ❶ NEW
+                  extra_key_columns  : list[str] | None = None,   # optional
+                  debug=False):
+        """
+        Standardised method to extend a column.  Set  deduplicate=True  to
+        contact the remote extender only once per distinct value.
+        """
+        other_params      = other_params or {}
+        extra_key_columns = extra_key_columns or []          # e.g. ['timestamp']
+
+        # ------------------------------------------------------------------ ❷
+        # Build a reduced table if deduplication is requested
+        if deduplicate:
+            mini_table, key_map = self._build_mini_table(table, column_name, extra_key_columns)
+            working_table       = mini_table        # prepare payload for this one
+        else:
+            working_table       = table
+            key_map             = None
+
+        # ----- build the payload (unchanged) ------------------------------------
         if extender_id == 'reconciledColumnExt':
-            input_data = self._prepare_input_data_reconciled(table, column_name, properties, extender_id)
+            input_data = self._prepare_input_data_reconciled(
+                working_table, column_name, properties, extender_id
+            )
         elif extender_id == 'meteoPropertiesOpenMeteo':
             date_column_name = other_params.get('date_column_name')
-            decimal_format = other_params.get('decimal_format')
-            if not date_column_name or not decimal_format:
-                raise ValueError("date_column_name and decimal_format are required for meteoPropertiesOpenMeteo extender")
-            input_data = self._prepare_input_data_meteo(table, column_name, extender_id, properties, date_column_name, decimal_format)
+            decimal_format   = other_params.get('decimal_format')
+            input_data = self._prepare_input_data_meteo(
+                working_table, column_name, extender_id, properties,
+                date_column_name, decimal_format
+            )
         elif extender_id == 'wikidataPropertySPARQL':
-            # Validate that the column is reconciled
-            if column_name not in table['columns']:
-                raise ValueError(f"Column '{column_name}' not found in table")
-            
-            column_status = table['columns'][column_name].get('status', '')
-            if column_status != 'reconciliated':
-                raise ValueError(f"Column '{column_name}' must be reconciled before extending with Wikidata properties")
-            
-            # Properties should be a space-separated string of property IDs
-            if not isinstance(properties, str):
-                raise ValueError("Properties for wikidataPropertySPARQL should be a space-separated string (e.g., 'P625 P131 P373')")
-            
-            input_data = self._prepare_input_data_wikidata_property(table, column_name, properties, extender_id)
+            input_data = self._prepare_input_data_wikidata_property(
+                working_table, column_name, properties, extender_id
+            )
         else:
             raise ValueError(f"Unsupported extender: {extender_id}")
 
+        # ----- send request -----------------------------------------------------
         extension_response = self._send_extension_request(input_data, extender_id, debug)
-        extended_table = self._compose_extension_table(copy.deepcopy(table), extension_response)
-        backend_payload = self._create_backend_payload(extended_table)
+
+        # ------------------------------------------------------------------ ❸
+        # Compose extended table (mini or full) and expand if needed
+        if deduplicate:
+            mini_extended  = self._compose_extension_table(copy.deepcopy(working_table),
+                                                        extension_response)
+            full_extended  = self._expand_results_to_duplicates(
+                                full_table = copy.deepcopy(table),
+                                mini_table = mini_extended,
+                                key_map    = key_map,
+                                main_col   = column_name,
+                                extra_cols = extra_key_columns
+                            )
+        else:
+            full_extended  = self._compose_extension_table(copy.deepcopy(table),
+                                                        extension_response)
+
+        backend_payload = self._create_backend_payload(full_extended)
 
         if debug:
             print("Extension completed successfully!")
-            print(f"Added {len(extension_response.get('columns', {}))} new columns")
         else:
             print("Column extended successfully!")
 
-        return extended_table, backend_payload
-    
+        return full_extended, backend_payload
+
     def _get_extender_data(self, debug=False):
         """
         Retrieves extender data from the backend with optional debug output.

@@ -615,29 +615,159 @@ class ReconciliationManager:
 
         return backend_payload
 
-    def reconcile(self, table_data, column_name, reconciliator_id, optional_columns):
+    def _create_annotation_meta_from_metadata(self, metadata_list):
         """
-        Perform the reconciliation process on a specified column in the provided table data.
+        Convert a list returned by the reconciliator into the compact
+        annotationMeta structure used in our table format.
         """
-        valid_reconciliators = [
-            'geocodingHere', 'geocodingGeonames', 'geonames', 
-            'wikidataOpenRefine', 'wikidataAlligator'
-        ]
-        
-        if reconciliator_id not in valid_reconciliators:
-            raise ValueError(f"Invalid reconciliator ID. Please use one of: {', '.join(valid_reconciliators)}.")
-        
-        input_data = self._prepare_input_data(table_data, column_name, reconciliator_id, optional_columns)
-        response_data = self._send_reconciliation_request(input_data, reconciliator_id)
-        
-        if response_data:
-            final_payload = self._compose_reconciled_table(table_data, response_data, column_name, reconciliator_id)
-            
-            # Only restructure for geocodingHere (which works)
-            if reconciliator_id == 'geocodingHere':
-                final_payload = self._restructure_payload(final_payload)
-            
-            backend_payload = self._create_backend_payload(final_payload)
-            return final_payload, backend_payload
+        if not metadata_list:                         # no result → not annotated
+            return {
+                'annotated': False,
+                'match'    : {'value': False}
+            }
+
+        # collect scores & match flags
+        scores = [m.get('score', 0) for m in metadata_list if 'score' in m]
+        best_match = any(m.get('match', False) for m in metadata_list)
+
+        return {
+            'annotated'   : True,
+            'match'       : {'value': best_match,
+                            'reason': 'reconciliator'},
+            'lowestScore' : min(scores) if scores else 0,
+            'highestScore': max(scores) if scores else 0
+        }
+
+    def _build_mini_table(self,
+                      full_table: dict,
+                      main_col   : str,
+                      extra_cols : list[str] | None = None):
+        """
+        Return  (mini_table, key_map)
+
+        • mini_table – same structure as `full_table` containing ONLY the first
+        row for every distinct combination  (main_col  +  extra_cols).
+
+        • key_map – maps  ORIGINAL row_id  →  DEDUP-KEY  (a tuple).  Needed later
+        to copy the answers back to the duplicates.
+        """
+        extra_cols = extra_cols or []
+
+        def _row_key(row):
+            parts = [row['cells'][main_col]['label']]
+            for c in extra_cols:
+                parts.append(row['cells'][c]['label'])
+            return tuple(parts)                      # immutable / hashable
+
+        key2row   = {}                              # deduplication
+        key_map   = {}                              # original row → key
+
+        # keep FIRST row id per unique key
+        for row_id, row in full_table['rows'].items():
+            k = _row_key(row)
+            key_map[row_id] = k
+            if k not in key2row:
+                key2row[k] = row_id
+
+        # build the mini-table from those row ids
+        mini_table         = copy.deepcopy(full_table)
+        mini_table['rows'] = {rid: full_table['rows'][rid] for rid in key2row.values()}
+        mini_table['table']['nRows']  = len(mini_table['rows'])
+        mini_table['table']['nCells'] = len(mini_table['rows']) * len(full_table['columns'])
+
+        return mini_table, key_map
+
+    def reconcile(self,
+              table_data      : dict,
+              column_name     : str,
+              reconciliator_id: str,
+              optional_columns: list[str] | None = None,
+              *,
+              deduplicate     : bool = False):
+        """
+        Perform reconciliation – optionally deduplicating identical values
+        before the remote call.
+        """
+        optional_columns = optional_columns or []
+
+        # ----- 2a  build mini-table if requested --------------------------------
+        if deduplicate:
+            mini_table, key_map = self._build_mini_table(
+                table_data, column_name, optional_columns
+            )
+            input_data = self._prepare_input_data(
+                mini_table, column_name, reconciliator_id, optional_columns
+            )
         else:
+            key_map    = None            # not needed
+            input_data = self._prepare_input_data(
+                table_data, column_name, reconciliator_id, optional_columns
+            )
+
+        # ----- 2b  call the remote service --------------------------------------
+        response_data = self._send_reconciliation_request(input_data, reconciliator_id)
+        if not response_data:
             return None, None
+
+        # ----- 2c  compose final full table -------------------------------------
+        if deduplicate:
+            # compose on the *mini* table first …
+            mini_reconciled = self._compose_reconciled_table(
+                mini_table, response_data, column_name, reconciliator_id
+            )
+            # … then expand answers back to ALL rows
+            final_table = self._expand_results_to_duplicates(
+                full_table=table_data,
+                mini_table=mini_reconciled,
+                key_map   =key_map,
+                main_col  =column_name,
+                extra_cols=optional_columns
+            )
+        else:
+            final_table = self._compose_reconciled_table(
+                table_data, response_data, column_name, reconciliator_id
+            )
+
+        backend_payload = self._create_backend_payload(final_table)
+        return final_table, backend_payload
+    
+    def _expand_results_to_duplicates(self,
+                                  full_table: dict,
+                                  mini_table: dict,
+                                  key_map   : dict,
+                                  main_col  : str,
+                                  extra_cols: list[str]) -> dict:
+        """
+        Take the reconciled *mini_table* and fill the corresponding metadata
+        into every original row that had the same key.
+        """
+
+        # 3-a  build  key → metadata  lookup out of the reconciled mini-table
+        def _row_key(row):
+            parts = [row['cells'][main_col]['label']]
+            for c in extra_cols:
+                parts.append(row['cells'][c]['label'])
+            return tuple(parts)
+
+        key2meta = {}
+        for row in mini_table['rows'].values():
+            k = _row_key(row)
+            key2meta[k] = row['cells'][main_col]['metadata']
+
+        # 3-b  copy into *all* rows of the original table
+        for row_id, row in full_table['rows'].items():
+            k = key_map[row_id]
+            if k in key2meta:
+                cell = row['cells'][main_col]
+                cell['metadata']      = copy.deepcopy(key2meta[k])
+                cell['annotationMeta'] = self._create_annotation_meta_from_metadata(
+                                            cell['metadata']
+                                        )
+
+        # refresh simple counters
+        full_table['table']['nCellsReconciliated'] = sum(
+            1 for r in full_table['rows'].values()
+            for c in r['cells'].values()
+            if c.get('annotationMeta', {}).get('annotated')
+        )
+        return full_table

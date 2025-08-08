@@ -2,6 +2,7 @@ import requests
 import json
 import pandas as pd
 import os
+import time
 from urllib.parse import urljoin
 from fake_useragent import UserAgent
 from .auth_manager import AuthManager
@@ -184,62 +185,175 @@ for table_id, (success, message) in results.items():
             print(f"Error getting dataset tables: {e}")
             return pd.DataFrame()
     
-    def add_table(self, dataset_id: str, table_data: pd.DataFrame, table_name: str) -> Tuple[Optional[str], str, Optional[Dict[str, Any]]]:
+    def add_table(self, dataset_id: str, table_data: pd.DataFrame, table_name: str, 
+              timeout: Optional[int] = None, show_progress: bool = True) -> Tuple[Optional[str], str, Optional[Dict[str, Any]]]:
         """
-        Add a table to a specific dataset and process the result.
-
-        This method uploads a DataFrame as a CSV file to the specified dataset
-        and processes the API response to extract the table ID and other details.
-
+        Add a table to a specific dataset with intelligent timeout handling.
+        
+        FULLY BACKWARD COMPATIBLE - all existing code continues to work unchanged.
+        
+        Args:
+        ----
+        dataset_id : str
+            The ID of the dataset to add the table to
+        table_data : pd.DataFrame  
+            The DataFrame to upload
+        table_name : str
+            The name for the table
+        timeout : int, optional
+            Custom timeout in seconds. If None, will be calculated automatically
+        show_progress : bool, default True
+            Whether to show upload progress information. Set False for quiet operation.
+            
+        Returns:
+        -------
+        Tuple[Optional[str], str, Optional[Dict[str, Any]]]
+            A tuple containing (table_id, message, response_data)
+            
+        Examples:
+        --------
+        # Original usage (unchanged)
+        table_id, msg, data = table_manager.add_table(dataset_id, df, "my_table")
+        
+        # With custom timeout
+        table_id, msg, data = table_manager.add_table(dataset_id, df, "my_table", timeout=300)
+        
+        # Quiet mode (no progress output)
+        table_id, msg, data = table_manager.add_table(dataset_id, df, "my_table", show_progress=False)
         """
         url = f"{self.api_url}dataset/{dataset_id}/table/"
         headers = self._get_headers()
-        headers.pop('Content-Type', None)  # Remove Content-Type for file upload
+        headers.pop('Content-Type', None)
         
         temp_file_path = self._create_temp_csv(table_data)
+        upload_start_time = time.time()
         
         try:
+            # Calculate file metrics
+            file_size_bytes = os.path.getsize(temp_file_path)
+            file_size_mb = file_size_bytes / (1024 * 1024)
+            row_count = len(table_data)
+            col_count = len(table_data.columns)
+            
+            # Show progress only if requested
+            if show_progress:
+                print(f"📊 Uploading table: '{table_name}'")
+                print(f"   • Rows: {row_count:,}")
+                print(f"   • Columns: {col_count}")
+                print(f"   • File size: {file_size_mb:.2f} MB")
+            
+            # Calculate intelligent timeout if not provided
+            if timeout is None:
+                timeout = self._calculate_upload_timeout(file_size_mb, row_count)
+            
+            if show_progress:
+                timeout_min = timeout // 60
+                timeout_sec = timeout % 60
+                if timeout_min > 0:
+                    print(f"   • Timeout: {timeout_min}m {timeout_sec}s")
+                else:
+                    print(f"   • Timeout: {timeout_sec}s")
+                
+                # Show warnings for large files
+                if file_size_mb > 50:
+                    print(f"⚠️  Large file ({file_size_mb:.1f} MB) - may take several minutes...")
+                elif row_count > 100000:
+                    print(f"⚠️  Large dataset ({row_count:,} rows) - processing may take time...")
+            
             with open(temp_file_path, 'rb') as file:
                 files = {'file': (file.name, file, 'text/csv')}
                 data = {'name': table_name}
                 
-                response = requests.post(url, headers=headers, data=data, files=files, timeout=30)
+                if show_progress and file_size_mb > 10:
+                    print(f"🚀 Starting upload...")
+                
+                response = requests.post(url, headers=headers, data=data, files=files, timeout=timeout)
+                upload_duration = time.time() - upload_start_time
+                
                 response.raise_for_status()
                 response_data = response.json()
                 
                 # Extract the table ID from the response data
                 if 'tables' in response_data and len(response_data['tables']) > 0:
                     table_id = response_data['tables'][0].get('id')
-                    message = f"Table added successfully with ID: {table_id}"
-                    self.logger.info(message)
+                    
+                    if show_progress:
+                        print(f"✅ Upload completed!")
+                        print(f"   • Table ID: {table_id}")
+                        print(f"   • Duration: {upload_duration:.1f}s")
+                        if row_count > 0:
+                            print(f"   • Throughput: {row_count/upload_duration:.0f} rows/s")
+                    
+                    message = f"Table '{table_name}' added successfully with ID: {table_id}"
+                    self.logger.info(f"Table upload: {table_id} ({row_count:,} rows, {upload_duration:.1f}s)")
                     return table_id, message, response_data
                 else:
-                    message = "Failed to add table. No table ID returned."
+                    message = f"Failed to add table '{table_name}'. No table ID returned."
                     self.logger.warning(message)
                     return None, message, response_data
 
-        except requests.RequestException as e:
-            error_message = f"Request error occurred: {str(e)}"
-            if hasattr(e, 'response'):
-                error_message += f"\nResponse status code: {e.response.status_code}"
-                error_message += f"\nResponse content: {e.response.text[:200]}..."
-            self.logger.error(error_message)
+        except requests.exceptions.ReadTimeout:
+            upload_duration = time.time() - upload_start_time
+            error_message = (f"Upload timed out after {upload_duration:.0f}s (limit: {timeout}s)\n"
+                            f"File: {file_size_mb:.1f} MB, {row_count:,} rows\n"
+                            f"💡 Try: table_manager.add_table(dataset_id, df, name, timeout={timeout*2})")
             return None, error_message, None
 
-        except IOError as e:
-            error_message = f"File I/O error occurred: {str(e)}"
-            self.logger.error(error_message)
+        except requests.RequestException as e:
+            error_message = f"Request error: {str(e)}"
+            if hasattr(e, 'response') and e.response is not None:
+                error_message += f"\nStatus: {e.response.status_code}"
+                if len(e.response.text) < 500:  # Only show short error messages
+                    error_message += f"\nResponse: {e.response.text}"
             return None, error_message, None
 
         except Exception as e:
-            error_message = f"An unexpected error occurred: {str(e)}"
-            self.logger.error(error_message)
+            error_message = f"Unexpected error: {str(e)}"
             return None, error_message, None
 
         finally:
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
+    def _calculate_upload_timeout(self, file_size_mb: float, row_count: int) -> int:
+        """Calculate intelligent timeout based on file size and complexity."""
+        # Base timeout
+        base_timeout = 30  # 30 seconds minimum
+        
+        # Size-based timeout (2 seconds per MB)
+        size_timeout = max(30, int(file_size_mb * 2))
+        
+        # Row-based timeout for large datasets
+        if row_count > 5000000:      # 5M+ rows
+            row_timeout = 1800       # 30 minutes
+        elif row_count > 1000000:    # 1M+ rows
+            row_timeout = 900        # 15 minutes  
+        elif row_count > 500000:     # 500K+ rows
+            row_timeout = 300        # 5 minutes
+        elif row_count > 100000:     # 100K+ rows
+            row_timeout = 120        # 2 minutes
+        else:
+            row_timeout = 30         # 30 seconds
+        
+        # Use the maximum of base, size, and row timeouts
+        return min(max(base_timeout, size_timeout, row_timeout), 3600)  # Cap at 1 hour
+
+    def add_large_table(self, dataset_id: str, table_data: pd.DataFrame, table_name: str, 
+                    custom_timeout: Optional[int] = None) -> Tuple[Optional[str], str, Optional[Dict[str, Any]]]:
+        """
+        Convenience method for large tables - just calls add_table with generous timeout.
+        """
+        if custom_timeout is None:
+            row_count = len(table_data)
+            if row_count > 5000000:
+                custom_timeout = 3600  # 1 hour
+            elif row_count > 1000000:
+                custom_timeout = 1800  # 30 minutes
+            # else use automatic calculation
+        
+        return self.add_table(dataset_id, table_data, table_name, 
+                            timeout=custom_timeout, show_progress=True)
+        
     def _create_temp_csv(self, table_data: pd.DataFrame) -> str:
         """
         Create a temporary CSV file from a DataFrame.
@@ -281,8 +395,7 @@ for table_id, (success, message) in results.items():
         else:
             message = "Failed to add table. No table ID returned."
             return {'message': message, 'response_data': response_data}
-
-    
+ 
     def get_table(self, dataset_id: str, table_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve a table by its ID from a specific dataset.
@@ -304,8 +417,6 @@ for table_id, (success, message) in results.items():
             self.logger.error(f"Error occurred while retrieving the table data: {e}")
             return None
     
-
-
     def _create_zip_file(self, df: pd.DataFrame, zip_filename: Optional[str] = None) -> str:
         """
         Create a zip file containing a CSV file from the given DataFrame.

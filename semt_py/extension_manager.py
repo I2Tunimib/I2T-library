@@ -330,6 +330,41 @@ class ExtensionManager:
             "property" : properties
         }
 
+    def _prepare_input_data_reconciled_wikidata(self, table, reconciled_column_name, properties, id_extender):
+        """
+        Prepare input data for the reconciledColumnExtWikidata extender.
+        
+        :param table: The input table containing data.
+        :param reconciled_column_name: The name of the reconciled column.
+        :param properties: List of label properties ['id', 'name', 'description', 'url']
+        :param id_extender: The ID of the extender to use.
+        :return: A dictionary representing the payload for the extender.
+        """
+        # Build row_id -> entity_id mapping (correct format)
+        items = {reconciled_column_name: {}}
+        
+        for row_id, row in table['rows'].items():
+            if reconciled_column_name in row['cells']:
+                cell = row['cells'][reconciled_column_name]
+                if 'metadata' in cell and cell['metadata']:
+                    # Get the first (best match) entity ID
+                    entity_id = cell['metadata'][0].get('id', '')
+                    if entity_id:
+                        # Map row_id -> entity_id (this is the correct format)
+                        items[reconciled_column_name][row_id] = entity_id
+        
+        if not items[reconciled_column_name]:
+            raise ValueError(
+                f"No reconciled entities found in column '{reconciled_column_name}'. "
+                "The column must be reconciled before you can extend it."
+            )
+        
+        return {
+            "serviceId": id_extender,
+            "items": items,
+            "labels": properties  # List of label properties
+        }
+
     def _prepare_input_data_wikidata_property(self, table, reconciled_column_name, properties, id_extender):
         """
         Prepare input data for the wikidataPropertySPARQL extender.
@@ -683,6 +718,10 @@ class ExtensionManager:
             )
         elif extender_id == 'wikidataPropertySPARQL':
             input_data = self._prepare_input_data_wikidata_property(
+                working_table, column_name, properties, extender_id
+            )
+        elif extender_id == 'reconciledColumnExtWikidata':
+            input_data = self._prepare_input_data_reconciled_wikidata(
                 working_table, column_name, properties, extender_id
             )
         else:

@@ -330,6 +330,74 @@ class ExtensionManager:
             "property" : properties
         }
 
+    def _prepare_input_data_llm_classifier(self, table, reconciled_column_name, properties, id_extender):
+        """
+        Prepare input data for the llmClassifier extender.
+        
+        :param table: The input table containing data.
+        :param reconciled_column_name: The name of the reconciled column.
+        :param properties: Dictionary with 'description' and 'country' column names
+                        e.g., {'description': 'tender description ', 'country': 'country'}
+        :param id_extender: The ID of the extender to use.
+        :return: A dictionary representing the payload for the extender.
+        """
+        # Build main items structure: rowId -> {kbId, value}
+        items = {reconciled_column_name: {}}
+        
+        # Build props structure for additional columns
+        props = {}
+        
+        # Initialize props structure
+        if 'description' in properties and properties['description']:
+            props['description'] = {}
+        if 'country' in properties and properties['country']:
+            props['country'] = {}
+        
+        for row_id, row in table['rows'].items():
+            if reconciled_column_name in row['cells']:
+                cell = row['cells'][reconciled_column_name]
+                if 'metadata' in cell and cell['metadata']:
+                    # Get the first (best match) entity
+                    entity_id = cell['metadata'][0].get('id', '')
+                    cell_value = cell.get('label', '')
+                    
+                    if entity_id:
+                        # Main items structure
+                        items[reconciled_column_name][row_id] = {
+                            'kbId': entity_id,
+                            'value': cell_value
+                        }
+                        
+                        # Props structure - description column
+                        if 'description' in properties and properties['description']:
+                            desc_col = properties['description']
+                            if desc_col in row['cells']:
+                                desc_value = row['cells'][desc_col].get('label', '')
+                                props['description'][row_id] = [desc_value]
+                            else:
+                                props['description'][row_id] = ['']
+                        
+                        # Props structure - country column  
+                        if 'country' in properties and properties['country']:
+                            country_col = properties['country']
+                            if country_col in row['cells']:
+                                country_value = row['cells'][country_col].get('label', '')
+                                props['country'][row_id] = [country_value]
+                            else:
+                                props['country'][row_id] = ['']
+        
+        if not items[reconciled_column_name]:
+            raise ValueError(
+                f"No reconciled entities found in column '{reconciled_column_name}'. "
+                "The column must be reconciled before you can extend it."
+            )
+        
+        return {
+            "serviceId": id_extender,
+            "items": items,
+            "props": props
+        }
+
     def _prepare_input_data_reconciled_wikidata(self, table, reconciled_column_name, properties, id_extender):
         """
         Prepare input data for the reconciledColumnExtWikidata extender.
@@ -722,6 +790,10 @@ class ExtensionManager:
             )
         elif extender_id == 'reconciledColumnExtWikidata':
             input_data = self._prepare_input_data_reconciled_wikidata(
+                working_table, column_name, properties, extender_id
+            )
+        elif extender_id == 'llmClassifier':
+            input_data = self._prepare_input_data_llm_classifier(
                 working_table, column_name, properties, extender_id
             )
         else:

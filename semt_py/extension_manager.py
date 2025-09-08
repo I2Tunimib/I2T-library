@@ -444,9 +444,7 @@ class ExtensionManager:
         :return: A dictionary representing the payload for the extender.
         """
         # Extract reconciled entity IDs from the table
-        items = {
-            reconciled_column_name: {}
-        }
+        items = {reconciled_column_name: {}}
         
         for row_id, row in table['rows'].items():
             if reconciled_column_name in row['cells']:
@@ -455,13 +453,22 @@ class ExtensionManager:
                     # Get the entity ID from the first metadata entry
                     entity_id = cell['metadata'][0].get('id', '')
                     if entity_id:
-                        # Handle both wd: and wdA: prefixes - keep original format
+                        # Map row_id -> entity_id (this is what responseTransformer expects)
                         items[reconciled_column_name][row_id] = entity_id
         
+        if not items[reconciled_column_name]:
+            raise ValueError(
+                f"No reconciled entities found in column '{reconciled_column_name}'. "
+                "The column must be reconciled before you can extend it."
+            )
+        
+        # Correct payload structure - properties should be in props object
         payload = {
             "serviceId": id_extender,
             "items": items,
-            "properties": properties  # Space-separated string of property IDs
+            "props": {
+                "properties": properties  # ✅ Correct structure
+            }
         }
         
         return payload

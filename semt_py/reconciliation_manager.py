@@ -48,7 +48,7 @@ class ReconciliationManager:
             JSON response if successful, None otherwise.
         """
         try:
-            url = urljoin(self.api_url, 'reconciliators/list')
+            url = urljoin(self.api_url, 'reconcilers/list')
             headers = self._get_headers()
             response = requests.get(url, headers=headers)
             response.raise_for_status()
@@ -306,7 +306,7 @@ class ReconciliationManager:
         :param reconciliator_id: The ID of the reconciliator service to use.
         :return: The JSON response from the reconciliator service, or None if an error occurs.
         """
-        url = urljoin(self.api_url, f'reconciliators/{reconciliator_id}')
+        url = urljoin(self.api_url, f'reconcilers/{reconciliator_id}')
         headers = self._get_headers()
         
         try:

@@ -8,6 +8,7 @@ from .auth_manager import AuthManager
 from typing import Dict, Any, Optional
 import logging
 
+
 class ReconciliationManager:
     """
     A class to manage reconciliation operations through API interactions.
@@ -17,8 +18,8 @@ class ReconciliationManager:
         """
         Initialize the ReconciliationManager with the base URL and token manager.
         """
-        self.base_url = base_url.rstrip('/') + '/'
-        self.api_url = urljoin(self.base_url, 'api/')
+        self.base_url = base_url.rstrip("/") + "/"
+        self.api_url = urljoin(self.base_url, "api/")
         self.Auth_manager = Auth_manager
         self.logger = logging.getLogger(__name__)
 
@@ -28,9 +29,9 @@ class ReconciliationManager:
 
         """
         return {
-            'Authorization': f'Bearer {self.Auth_manager.get_token()}',
-            'Content-Type': 'application/json;charset=UTF-8',
-            'Accept': 'application/json, text/plain, */*'
+            "Authorization": f"Bearer {self.Auth_manager.get_token()}",
+            "Content-Type": "application/json;charset=UTF-8",
+            "Accept": "application/json, text/plain, */*",
         }
 
     def _get_reconciliator_data(self, debug: bool = False) -> Optional[Dict[str, Any]]:
@@ -48,7 +49,7 @@ class ReconciliationManager:
             JSON response if successful, None otherwise.
         """
         try:
-            url = urljoin(self.api_url, 'reconcilers/list')
+            url = urljoin(self.api_url, "reconcilers/list")
             headers = self._get_headers()
             response = requests.get(url, headers=headers)
             response.raise_for_status()
@@ -58,8 +59,8 @@ class ReconciliationManager:
                 print(f"Response headers: {response.headers}")
                 print(f"Response content (first 200 chars): {response.text[:200]}...")
 
-            content_type = response.headers.get('Content-Type', '')
-            if 'application/json' not in content_type:
+            content_type = response.headers.get("Content-Type", "")
+            if "application/json" not in content_type:
                 if debug:
                     print(f"Unexpected content type: {content_type}")
                     print("Full response content:")
@@ -69,8 +70,10 @@ class ReconciliationManager:
             return response.json()
         except requests.RequestException as e:
             if debug:
-                print(f"Request error occurred while retrieving reconciliator data: {e}")
-                if hasattr(e, 'response') and e.response is not None:
+                print(
+                    f"Request error occurred while retrieving reconciliator data: {e}"
+                )
+                if hasattr(e, "response") and e.response is not None:
                     print(f"Response status code: {e.response.status_code}")
                     print(f"Response content: {e.response.text[:200]}...")
             return None
@@ -115,21 +118,27 @@ class ReconciliationManager:
 
         reconciliators = []
         for reconciliator in service_list:
-            if isinstance(reconciliator, dict) and all(key in reconciliator for key in ["id", "relativeUrl", "name"]):
-                reconciliators.append({
-                    "id": reconciliator["id"],
-                    "relativeUrl": reconciliator["relativeUrl"],
-                    "name": reconciliator["name"]
-                })
+            if isinstance(reconciliator, dict) and all(
+                key in reconciliator for key in ["id", "relativeUrl", "name"]
+            ):
+                reconciliators.append(
+                    {
+                        "id": reconciliator["id"],
+                        "relativeUrl": reconciliator["relativeUrl"],
+                        "name": reconciliator["name"],
+                    }
+                )
             else:
                 print(f"Skipping invalid reconciliator data: {reconciliator}")
-        
+
         return pd.DataFrame(reconciliators)
 
-    def _display_formatted_parameters(self, param_dict: Dict[str, Any], id_reconciliator: str):
+    def _display_formatted_parameters(
+        self, param_dict: Dict[str, Any], id_reconciliator: str
+    ):
         """
         Helper method to display formatted parameters.
-    
+
         Args:
         ----
         param_dict : Dict[str, Any]
@@ -137,34 +146,37 @@ class ReconciliationManager:
         id_reconciliator : str
             The ID of the reconciliator for reference in the print statement.
         """
+
         def print_param_details(param):
             print(f"\n  Parameter Name: {param['name']}")
             print(f"    - Type: {param['type']}")
             print(f"    - Mandatory: {'Yes' if param['mandatory'] else 'No'}")
             print(f"    - Description: {param['description']}")
-            if 'label' in param and param['label']:
+            if "label" in param and param["label"]:
                 print(f"    - Label: {param['label']}")
-            if 'infoText' in param and param['infoText']:
+            if "infoText" in param and param["infoText"]:
                 print(f"    - Info: {param['infoText']}")
-    
+
         # Print header
         print(f"\n{'=' * 3} Reconciliator Parameters: {id_reconciliator} {'=' * 3}")
-    
+
         # Print mandatory parameters
-        if param_dict.get('mandatory'):
+        if param_dict.get("mandatory"):
             print("\nMandatory Parameters:")
-            for param in param_dict['mandatory']:
+            for param in param_dict["mandatory"]:
                 print_param_details(param)
-    
+
         # Print optional parameters
-        if param_dict.get('optional'):
+        if param_dict.get("optional"):
             print("\nOptional Parameters:")
-            for param in param_dict['optional']:
+            for param in param_dict["optional"]:
                 print_param_details(param)
-    
+
         print("\n" + "=" * 50)
 
-    def get_reconciliator_parameters(self, id_reconciliator: str, debug: bool = False) -> Optional[Dict[str, Any]]:
+    def get_reconciliator_parameters(
+        self, id_reconciliator: str, debug: bool = False
+    ) -> Optional[Dict[str, Any]]:
         """
         Get reconciliator parameters and display them in a formatted way.
         """
@@ -175,45 +187,65 @@ class ReconciliationManager:
             return None
 
         mandatory_params = [
-            {'name': 'table', 'type': 'json', 'mandatory': True, 'description': 'The table data in JSON format'},
-            {'name': 'columnName', 'type': 'string', 'mandatory': True, 'description': 'The name of the column to reconcile'},
-            {'name': 'idReconciliator', 'type': 'string', 'mandatory': True, 'description': 'The ID of the reconciliator to use'}
+            {
+                "name": "table",
+                "type": "json",
+                "mandatory": True,
+                "description": "The table data in JSON format",
+            },
+            {
+                "name": "columnName",
+                "type": "string",
+                "mandatory": True,
+                "description": "The name of the column to reconcile",
+            },
+            {
+                "name": "idReconciliator",
+                "type": "string",
+                "mandatory": True,
+                "description": "The ID of the reconciliator to use",
+            },
         ]
 
         # Add service-specific parameter information
-        if id_reconciliator in ['geocodingGeonames', 'wikidataAlligator']:
-            mandatory_params.append({
-                'name': 'optional_columns', 
-                'type': 'list', 
-                'mandatory': False, 
-                'description': 'List of additional columns to include (e.g., ["County", "Country"])'
-            })
-        elif id_reconciliator in ['geocodingHere']:
-            mandatory_params.append({
-                'name': 'optional_columns', 
-                'type': 'list', 
-                'mandatory': False, 
-                'description': 'List of two additional columns for geocoding context'
-            })
+        if id_reconciliator in ["geocodingGeonames", "wikidataAlligator"]:
+            mandatory_params.append(
+                {
+                    "name": "optional_columns",
+                    "type": "list",
+                    "mandatory": False,
+                    "description": 'List of additional columns to include (e.g., ["County", "Country"])',
+                }
+            )
+        elif id_reconciliator in ["geocodingHere"]:
+            mandatory_params.append(
+                {
+                    "name": "optional_columns",
+                    "type": "list",
+                    "mandatory": False,
+                    "description": "List of two additional columns for geocoding context",
+                }
+            )
 
         for reconciliator in reconciliator_data:
-            if reconciliator['id'] == id_reconciliator:
-                parameters = reconciliator.get('formParams', [])
-                
+            if reconciliator["id"] == id_reconciliator:
+                parameters = reconciliator.get("formParams", [])
+
                 optional_params = [
                     {
-                        'name': param['id'],
-                        'type': param['inputType'],
-                        'mandatory': 'required' in param.get('rules', []),
-                        'description': param.get('description', ''),
-                        'label': param.get('label', ''),
-                        'infoText': param.get('infoText', '')
-                    } for param in parameters
+                        "name": param["id"],
+                        "type": param["inputType"],
+                        "mandatory": "required" in param.get("rules", []),
+                        "description": param.get("description", ""),
+                        "label": param.get("label", ""),
+                        "infoText": param.get("infoText", ""),
+                    }
+                    for param in parameters
                 ]
 
                 param_dict = {
-                    'mandatory': mandatory_params,
-                    'optional': optional_params
+                    "mandatory": mandatory_params,
+                    "optional": optional_params,
                 }
 
                 # Always display formatted parameters
@@ -221,10 +253,14 @@ class ReconciliationManager:
                 return param_dict
 
         if debug:
-            print(f"No parameters found for reconciliator with ID '{id_reconciliator}'.")
+            print(
+                f"No parameters found for reconciliator with ID '{id_reconciliator}'."
+            )
         return None
 
-    def _prepare_input_data(self, original_input, column_name, reconciliator_id, optional_columns):
+    def _prepare_input_data(
+        self, original_input, column_name, reconciliator_id, optional_columns
+    ):
         """
         Prepare the input data for the reconciliation process.
 
@@ -234,67 +270,98 @@ class ReconciliationManager:
         :param optional_columns: A list of optional columns to include in the reconciliation.
         :return: A dictionary representing the prepared input data for reconciliation.
         """
-        
+
         # Map reconciliator_id to the actual serviceId expected by the backend
         service_id_mapping = {
-            'wikidataOpenRefine': 'wikidataOpenRefine',
-            'geocodingGeonames': 'geocodingGeonames', 
-            'wikidataAlligator': 'wikidataAlligator',
-            'geocodingHere': 'geocodingHere',
-            'geonames': 'geonames'
+            "wikidataOpenRefine": "wikidataOpenRefine",
+            "geocodingGeonames": "geocodingGeonames",
+            "wikidataAlligator": "wikidataAlligator",
+            "geocodingHere": "geocodingHere",
+            "geonames": "geonames",
+            "lionLinker": "lionLinker",
         }
-        
+
         actual_service_id = service_id_mapping.get(reconciliator_id, reconciliator_id)
-        
+
         # Base structure for all services
         input_data = {
             "serviceId": actual_service_id,  # Use the mapped service ID
-            "items": [{"id": column_name, "label": column_name}]
+            "items": [{"id": column_name, "label": column_name}],
         }
 
         # Add items for all rows
-        for row_id, row_data in original_input['rows'].items():
-            main_column_value = row_data['cells'][column_name]['label']
-            input_data['items'].append({"id": f"{row_id}${column_name}", "label": main_column_value})
+        for row_id, row_data in original_input["rows"].items():
+            main_column_value = row_data["cells"][column_name]["label"]
+            input_data["items"].append(
+                {"id": f"{row_id}${column_name}", "label": main_column_value}
+            )
+
+        # Add required tableId, datasetId, and columnName for lion-linker and wikidataAlligator
+        if reconciliator_id in ["lionLinker", "wikidataAlligator"]:
+            # Extract or generate table and dataset IDs
+            table_id = original_input.get("table", {}).get("id", "default_table")
+            dataset_id = "library_dataset"  # Default dataset ID for library calls
+
+            input_data.update(
+                {
+                    "tableId": table_id,
+                    "datasetId": dataset_id,
+                    "columnName": column_name,
+                }
+            )
 
         # Handle different service-specific payload structures
-        if reconciliator_id in ['geocodingHere']:
+        if reconciliator_id in ["geocodingHere"]:
             # Keep existing geocodingHere structure unchanged
-            input_data.update({
-                "secondPart": {},
-                "thirdPart": {}
-            })
-            
-            for row_id, row_data in original_input['rows'].items():
-                if optional_columns and len(optional_columns) >= 2:
-                    second_part_value = row_data['cells'].get(optional_columns[0], {}).get('label', '')
-                    third_part_value = row_data['cells'].get(optional_columns[1], {}).get('label', '')
-                    input_data['secondPart'][row_id] = [second_part_value, [], optional_columns[0]]
-                    input_data['thirdPart'][row_id] = [third_part_value, [], optional_columns[1]]
+            input_data.update({"secondPart": {}, "thirdPart": {}})
 
-        elif reconciliator_id in ['geocodingGeonames', 'wikidataAlligator']:
+            for row_id, row_data in original_input["rows"].items():
+                if optional_columns and len(optional_columns) >= 2:
+                    second_part_value = (
+                        row_data["cells"].get(optional_columns[0], {}).get("label", "")
+                    )
+                    third_part_value = (
+                        row_data["cells"].get(optional_columns[1], {}).get("label", "")
+                    )
+                    input_data["secondPart"][row_id] = [
+                        second_part_value,
+                        [],
+                        optional_columns[0],
+                    ]
+                    input_data["thirdPart"][row_id] = [
+                        third_part_value,
+                        [],
+                        optional_columns[1],
+                    ]
+
+        elif reconciliator_id in [
+            "geocodingGeonames",
+            "wikidataAlligator",
+            "lionLinker",
+        ]:
             # Use additionalColumns structure for these services
-            if optional_columns and len(optional_columns) >= 2:
-                input_data['additionalColumns'] = {}
-                
+            if optional_columns:
+                input_data["additionalColumns"] = {}
+
                 # Create additionalColumns structure
                 for col_name in optional_columns:
-                    input_data['additionalColumns'][col_name] = {}
-                    
-                    for row_id, row_data in original_input['rows'].items():
-                        col_value = row_data['cells'].get(col_name, {}).get('label', '')
-                        input_data['additionalColumns'][col_name][row_id] = [col_value, [], col_name]
+                    input_data["additionalColumns"][col_name] = {}
 
-        elif reconciliator_id in ['wikidataOpenRefine']:
+                    for row_id, row_data in original_input["rows"].items():
+                        col_value = row_data["cells"].get(col_name, {}).get("label", "")
+                        input_data["additionalColumns"][col_name][row_id] = [
+                            col_value,
+                            [],
+                            col_name,
+                        ]
+
+        elif reconciliator_id in ["wikidataOpenRefine"]:
             # Simple structure - just serviceId and items (no additional processing needed)
             pass
 
         else:
             # Default behavior for other services (like 'geonames')
-            input_data.update({
-                "secondPart": {},
-                "thirdPart": {}
-            })
+            input_data.update({"secondPart": {}, "thirdPart": {}})
 
         return input_data
 
@@ -306,233 +373,353 @@ class ReconciliationManager:
         :param reconciliator_id: The ID of the reconciliator service to use.
         :return: The JSON response from the reconciliator service, or None if an error occurs.
         """
-        url = urljoin(self.api_url, f'reconcilers/{reconciliator_id}')
+        url = urljoin(self.api_url, f"reconcilers/{reconciliator_id}")
         headers = self._get_headers()
-        
+
         try:
             response = requests.post(url, json=input_data, headers=headers)
             response.raise_for_status()
-            return response.json()
+            raw_response = response.json()
+
+            # Handle both old and new response formats
+            return self._normalize_reconciliation_response(
+                raw_response, reconciliator_id
+            )
         except requests.RequestException as e:
             print(f"Error: {e}")
             return None
 
-    def _compose_reconciled_table(self, original_input, reconciliation_output, column_name, reconciliator_id):
+    def _normalize_reconciliation_response(self, raw_response, reconciliator_id):
+        """
+        Normalize response format to handle both old and new backend response formats.
+        """
+        # Check if response has the new format (object with numeric keys and error field)
+        if isinstance(raw_response, dict):
+            # New format: response is an object with numeric string keys and potential error field
+            if "error" in raw_response:
+                error_field = raw_response.pop("error")
+
+            # Check if remaining keys are numeric (new format)
+            remaining_keys = [k for k in raw_response.keys() if k != "error"]
+            if remaining_keys and all(k.isdigit() for k in remaining_keys):
+                # Convert object with numeric keys back to array format
+                normalized_response = []
+                for key in sorted(remaining_keys, key=int):
+                    item = raw_response[key]
+                    if isinstance(item, dict):
+                        normalized_response.append(item)
+                return normalized_response
+
+            # If not numeric keys, might be old format already as dict
+            # Convert single dict response to list format
+            if "id" in raw_response:
+                return [raw_response]
+
+        # Old format: response is already a list
+        if isinstance(raw_response, list):
+            return raw_response
+
+        # Fallback: wrap in list if it's a single item
+        return [raw_response] if raw_response else []
+
+    def _compose_reconciled_table(
+        self, original_input, reconciliation_output, column_name, reconciliator_id
+    ):
         """
         Compose a reconciled table from the original input and reconciliation output.
         Fixed to match backend expectations exactly.
         """
+        # Validate input
+        if not reconciliation_output:
+            return original_input
+
+        if not isinstance(reconciliation_output, list):
+            return original_input
+
         final_payload = copy.deepcopy(original_input)
 
         # Update table timestamp
-        final_payload['table']['lastModifiedDate'] = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-        
+        final_payload["table"]["lastModifiedDate"] = (
+            datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        )
+
         # Update column status
-        final_payload['columns'][column_name]['status'] = 'reconciliated'
-        
+        final_payload["columns"][column_name]["status"] = "reconciliated"
+
         # Set context based on reconciliator service - CORRECTED MAPPING
-        reconciliated_count = len([item for item in reconciliation_output if item['id'] != column_name])
-        
+        # Handle both new and old response formats
+        try:
+            reconciliated_count = len(
+                [
+                    item
+                    for item in reconciliation_output
+                    if isinstance(item, dict) and item.get("id") != column_name
+                ]
+            )
+        except Exception as e:
+            reconciliated_count = 0
+
         # Define CORRECT context mapping for different services
         context_mapping = {
-            'geocodingGeonames': {
-                'geoCoord': {
-                    'uri': 'http://www.google.com/maps/place/',
-                    'total': reconciliated_count,
-                    'reconciliated': reconciliated_count
+            "geocodingGeonames": {
+                "geoCoord": {
+                    "uri": "http://www.google.com/maps/place/",
+                    "total": reconciliated_count,
+                    "reconciliated": reconciliated_count,
                 }
             },
-            'geocodingHere': {
-                'georss': {
-                    'uri': 'http://www.google.com/maps/place/',
-                    'total': reconciliated_count,
-                    'reconciliated': reconciliated_count
+            "geocodingHere": {
+                "georss": {
+                    "uri": "http://www.google.com/maps/place/",
+                    "total": reconciliated_count,
+                    "reconciliated": reconciliated_count,
                 }
             },
-            'geonames': {
-                'geo': {
-                    'uri': 'http://www.geonames.org/',
-                    'total': reconciliated_count,
-                    'reconciliated': reconciliated_count
+            "geonames": {
+                "geo": {
+                    "uri": "http://www.geonames.org/",
+                    "total": reconciliated_count,
+                    "reconciliated": reconciliated_count,
                 }
             },
-            'wikidataOpenRefine': {
-                'wd': {
-                    'uri': 'https://www.wikidata.org/wiki/',
-                    'total': reconciliated_count,
-                    'reconciliated': reconciliated_count
+            "wikidataOpenRefine": {
+                "wd": {
+                    "uri": "https://www.wikidata.org/wiki/",
+                    "total": reconciliated_count,
+                    "reconciliated": reconciliated_count,
                 }
             },
-            'wikidataAlligator': {
-                'wdA': {
-                    'uri': 'https://www.wikidata.org/wiki/',
-                    'total': reconciliated_count,
-                    'reconciliated': reconciliated_count
+            "wikidataAlligator": {
+                "wdA": {
+                    "uri": "https://www.wikidata.org/wiki/",
+                    "total": reconciliated_count,
+                    "reconciliated": reconciliated_count,
                 }
-            }
+            },
+            "lionLinker": {
+                "ll": {
+                    "uri": "https://www.wikidata.org/wiki/",
+                    "total": reconciliated_count,
+                    "reconciliated": reconciliated_count,
+                }
+            },
         }
-        
+
         # Set the appropriate context
-        final_payload['columns'][column_name]['context'] = context_mapping.get(
-            reconciliator_id, 
+        final_payload["columns"][column_name]["context"] = context_mapping.get(
+            reconciliator_id,
             {
-                'georss': {
-                    'uri': 'http://www.google.com/maps/place/',
-                    'total': reconciliated_count,
-                    'reconciliated': reconciliated_count
+                "georss": {
+                    "uri": "http://www.google.com/maps/place/",
+                    "total": reconciliated_count,
+                    "reconciliated": reconciliated_count,
                 }
-            }
+            },
         )
-        
-        final_payload['columns'][column_name]['kind'] = 'entity'
-        final_payload['columns'][column_name]['annotationMeta'] = {
-            'annotated': True,
-            'match': {'value': True},
-            'lowestScore': 1,
-            'highestScore': 1
+
+        final_payload["columns"][column_name]["kind"] = "entity"
+        final_payload["columns"][column_name]["annotationMeta"] = {
+            "annotated": True,
+            "match": {"value": True},
+            "lowestScore": 1,
+            "highestScore": 1,
         }
 
         # Process column metadata - FIXED FOR ALLIGATOR
         column_metadata_item = None
         for item in reconciliation_output:
-            if item['id'] == column_name:
+            if item["id"] == column_name:
                 column_metadata_item = item
                 break
-        
+
         # Create proper column metadata structure
-        if column_metadata_item and column_metadata_item.get('metadata'):
+        if column_metadata_item and column_metadata_item.get("metadata"):
             # Handle different metadata structures for different services
-            if reconciliator_id == 'wikidataAlligator':
+            if reconciliator_id == "wikidataAlligator":
                 # For Alligator, metadata is a list with the first item containing the structure
-                metadata_list = column_metadata_item['metadata']
+                metadata_list = column_metadata_item["metadata"]
                 if isinstance(metadata_list, list) and len(metadata_list) > 0:
                     first_metadata = metadata_list[0]
-                    
+
                     # Extract type and property information
-                    type_info = first_metadata.get('type', [])
-                    property_info = first_metadata.get('property', [])
-                    
+                    type_info = first_metadata.get("type", [])
+                    property_info = first_metadata.get("property", [])
+
                     # Create the "None:" entry structure that backend expects
-                    column_metadata = [{
-                        'id': 'None:',
-                        'match': True,
-                        'score': 0,
-                        'name': {'value': '', 'uri': ''},
-                        'type': type_info,
-                        'property': property_info,
-                        'entity': [first_metadata]  # Add the full metadata as entity
-                    }]
+                    column_metadata = [
+                        {
+                            "id": "None:",
+                            "match": True,
+                            "score": 0,
+                            "name": {"value": "", "uri": ""},
+                            "type": type_info,
+                            "property": property_info,
+                            "entity": [
+                                first_metadata
+                            ],  # Add the full metadata as entity
+                        }
+                    ]
                 else:
                     # Fallback if metadata structure is unexpected
-                    column_metadata = [{
-                        'id': 'None:',
-                        'match': True,
-                        'score': 0,
-                        'name': {'value': '', 'uri': ''},
-                        'type': [],
-                        'property': [],
-                        'entity': []
-                    }]
+                    column_metadata = [
+                        {
+                            "id": "None:",
+                            "match": True,
+                            "score": 0,
+                            "name": {"value": "", "uri": ""},
+                            "type": [],
+                            "property": [],
+                            "entity": [],
+                        }
+                    ]
             else:
                 # For other services, use simpler structure
-                column_metadata = [{
-                    'id': 'None:',
-                    'match': True,
-                    'score': 0,
-                    'name': {'value': '', 'uri': ''},
-                    'type': [],
-                    'property': [],
-                    'entity': []
-                }]
-            
-            final_payload['columns'][column_name]['metadata'] = column_metadata
+                column_metadata = [
+                    {
+                        "id": "None:",
+                        "match": True,
+                        "score": 0,
+                        "name": {"value": "", "uri": ""},
+                        "type": [],
+                        "property": [],
+                        "entity": [],
+                    }
+                ]
+
+            final_payload["columns"][column_name]["metadata"] = column_metadata
 
         # Process individual cell reconciliation results - KEEP ALL RESULTS
         nCellsReconciliated = 0
         cell_scores = []
-        
+
         for item in reconciliation_output:
-            if item['id'] != column_name and '$' in item['id']:
-                try:
-                    row_id, cell_id = item['id'].split('$', 1)
-                    
-                    if row_id in final_payload['rows'] and cell_id in final_payload['rows'][row_id]['cells']:
-                        cell = final_payload['rows'][row_id]['cells'][cell_id]
-                        
-                        # PRESERVE ALL METADATA RESULTS, NOT JUST THE FIRST
-                        if item.get('metadata'):
-                            metadata_list = item['metadata']
-                            if isinstance(metadata_list, list):
-                                # Keep ALL results, not just the first one
-                                processed_metadata = []
-                                for metadata in metadata_list:
-                                    processed_item = {
-                                        'id': metadata.get('id', ''),
-                                        'name': {
-                                            'value': metadata.get('name', ''),
-                                            'uri': self._create_uri_from_id(metadata.get('id', ''), reconciliator_id)
-                                        },
-                                        'score': metadata.get('score', 0),  # DON'T NORMALIZE SCORES
-                                        'match': metadata.get('match', False),
-                                        'type': metadata.get('type', [])
-                                    }
-                                    
-                                    # Add service-specific fields
-                                    if 'description' in metadata:
-                                        processed_item['description'] = metadata['description']
-                                    if 'features' in metadata:
-                                        processed_item['features'] = metadata['features']
-                                    
-                                    processed_metadata.append(processed_item)
-                                    cell_scores.append(metadata.get('score', 0))
-                                
-                                cell['metadata'] = processed_metadata
-                                
-                                # Set annotation metadata based on best score
-                                if processed_metadata:
-                                    best_score = max(item.get('score', 0) for item in processed_metadata)
-                                    worst_score = min(item.get('score', 0) for item in processed_metadata)
-                                    best_match = any(item.get('match', False) for item in processed_metadata)
-                                    
-                                    cell['annotationMeta'] = {
-                                        'annotated': True,
-                                        'match': {'value': best_match, 'reason': 'reconciliator'},
-                                        'lowestScore': worst_score,
-                                        'highestScore': best_score
-                                    }
-                                
-                                nCellsReconciliated += 1
-                except ValueError:
-                    print(f"Warning: Unexpected item ID format: {item['id']}")
+            try:
+                # Validate item structure
+                if not isinstance(item, dict):
                     continue
+
+                if "id" not in item:
+                    continue
+
+                item_id = item["id"]
+                if item_id != column_name and "$" in item_id:
+                    try:
+                        row_id, cell_id = item_id.split("$", 1)
+
+                        if (
+                            row_id in final_payload["rows"]
+                            and cell_id in final_payload["rows"][row_id]["cells"]
+                        ):
+                            cell = final_payload["rows"][row_id]["cells"][cell_id]
+
+                            # PRESERVE ALL METADATA RESULTS, NOT JUST THE FIRST
+                            if item.get("metadata"):
+                                metadata_list = item["metadata"]
+                                if isinstance(metadata_list, list):
+                                    # Keep ALL results, not just the first one
+                                    processed_metadata = []
+                                    for metadata in metadata_list:
+                                        if not isinstance(metadata, dict):
+                                            continue
+
+                                        processed_item = {
+                                            "id": metadata.get("id", ""),
+                                            "name": {
+                                                "value": metadata.get("name", ""),
+                                                "uri": self._create_uri_from_id(
+                                                    metadata.get("id", ""),
+                                                    reconciliator_id,
+                                                ),
+                                            },
+                                            "score": metadata.get(
+                                                "score", 0
+                                            ),  # DON'T NORMALIZE SCORES
+                                            "match": metadata.get("match", False),
+                                            "type": metadata.get("type", []),
+                                        }
+
+                                        # Add service-specific fields
+                                        if "description" in metadata:
+                                            processed_item["description"] = metadata[
+                                                "description"
+                                            ]
+                                        if "features" in metadata:
+                                            processed_item["features"] = metadata[
+                                                "features"
+                                            ]
+
+                                        processed_metadata.append(processed_item)
+                                        cell_scores.append(metadata.get("score", 0))
+
+                                    cell["metadata"] = processed_metadata
+
+                                    # Set annotation metadata based on best score
+                                    if processed_metadata:
+                                        best_score = max(
+                                            item.get("score", 0)
+                                            for item in processed_metadata
+                                        )
+                                        worst_score = min(
+                                            item.get("score", 0)
+                                            for item in processed_metadata
+                                        )
+                                        best_match = any(
+                                            item.get("match", False)
+                                            for item in processed_metadata
+                                        )
+
+                                        cell["annotationMeta"] = {
+                                            "annotated": True,
+                                            "match": {
+                                                "value": best_match,
+                                                "reason": "reconciliator",
+                                            },
+                                            "lowestScore": worst_score,
+                                            "highestScore": best_score,
+                                        }
+
+                                    nCellsReconciliated += 1
+                    except ValueError as ve:
+                        continue
+                    except Exception as e:
+                        continue
+            except Exception as e:
+                continue
 
         # Update column annotation metadata with actual scores
         if cell_scores:
-            final_payload['columns'][column_name]['annotationMeta'].update({
-                'lowestScore': min(cell_scores),
-                'highestScore': max(cell_scores)
-            })
+            final_payload["columns"][column_name]["annotationMeta"].update(
+                {"lowestScore": min(cell_scores), "highestScore": max(cell_scores)}
+            )
 
         # Update table reconciliation count
-        final_payload['table']['nCellsReconciliated'] = nCellsReconciliated
+        final_payload["table"]["nCellsReconciliated"] = nCellsReconciliated
 
         return final_payload
 
     def _create_uri_from_id(self, id_string, reconciliator_id):
         """Create appropriate URI based on ID and service"""
-        if reconciliator_id in ['wikidataOpenRefine', 'wikidataAlligator']:
-            if id_string.startswith('wd:') or id_string.startswith('wdA:'):
-                entity_id = id_string.split(':')[-1]
+        if reconciliator_id in [
+            "wikidataOpenRefine",
+            "wikidataAlligator",
+            "lionLinker",
+        ]:
+            if (
+                id_string.startswith("wd:")
+                or id_string.startswith("wdA:")
+                or id_string.startswith("ll:")
+            ):
+                entity_id = id_string.split(":")[-1]
                 return f"https://www.wikidata.org/wiki/{entity_id}"
-        elif reconciliator_id == 'geonames':
-            if id_string.startswith('geo:'):
-                geo_id = id_string.split(':')[-1]
+        elif reconciliator_id == "geonames":
+            if id_string.startswith("geo:"):
+                geo_id = id_string.split(":")[-1]
                 return f"http://www.geonames.org/{geo_id}"
-        elif reconciliator_id == 'geocodingGeonames':
-            if id_string.startswith('geoCoord:'):
-                coords = id_string.split(':')[-1]
+        elif reconciliator_id == "geocodingGeonames":
+            if id_string.startswith("geoCoord:"):
+                coords = id_string.split(":")[-1]
                 return f"http://www.google.com/maps/place/{coords}"
-        
+
         return ""
 
     def _restructure_payload(self, payload):
@@ -554,27 +741,27 @@ class ReconciliationManager:
         # Count reconciliated cells more robustly
         nCellsReconciliated = 0
         all_scores = []
-        
+
         # Iterate through all rows and cells to count reconciliated cells and collect scores
-        for row in final_payload.get('rows', {}).values():
-            for cell in row.get('cells', {}).values():
-                cell_annotation_meta = cell.get('annotationMeta', {})
-                
+        for row in final_payload.get("rows", {}).values():
+            for cell in row.get("cells", {}).values():
+                cell_annotation_meta = cell.get("annotationMeta", {})
+
                 # Check if cell is annotated/reconciliated
-                if cell_annotation_meta.get('annotated', False):
+                if cell_annotation_meta.get("annotated", False):
                     nCellsReconciliated += 1
-                    
+
                     # Collect scores for min/max calculation
-                    if 'lowestScore' in cell_annotation_meta:
-                        all_scores.append(cell_annotation_meta['lowestScore'])
-                    if 'highestScore' in cell_annotation_meta:
-                        all_scores.append(cell_annotation_meta['highestScore'])
-                    
+                    if "lowestScore" in cell_annotation_meta:
+                        all_scores.append(cell_annotation_meta["lowestScore"])
+                    if "highestScore" in cell_annotation_meta:
+                        all_scores.append(cell_annotation_meta["highestScore"])
+
                     # Also check metadata for scores as fallback
-                    if 'metadata' in cell and cell['metadata']:
-                        for metadata_item in cell['metadata']:
-                            if 'score' in metadata_item:
-                                all_scores.append(metadata_item['score'])
+                    if "metadata" in cell and cell["metadata"]:
+                        for metadata_item in cell["metadata"]:
+                            if "score" in metadata_item:
+                                all_scores.append(metadata_item["score"])
 
         # Calculate min and max scores
         if all_scores:
@@ -585,9 +772,9 @@ class ReconciliationManager:
             maxMetaScore = 1
 
         # Get table data safely
-        table_data = final_payload.get('table', {})
-        columns = final_payload.get('columns', {})
-        rows = final_payload.get('rows', {})
+        table_data = final_payload.get("table", {})
+        columns = final_payload.get("columns", {})
+        rows = final_payload.get("rows", {})
 
         # Create the backend payload structure
         backend_payload = {
@@ -601,16 +788,10 @@ class ReconciliationManager:
                 "nCellsReconciliated": nCellsReconciliated,
                 "lastModifiedDate": table_data.get("lastModifiedDate", ""),
                 "minMetaScore": minMetaScore,
-                "maxMetaScore": maxMetaScore
+                "maxMetaScore": maxMetaScore,
             },
-            "columns": {
-                "byId": columns,
-                "allIds": list(columns.keys())
-            },
-            "rows": {
-                "byId": rows,
-                "allIds": list(rows.keys())
-            }
+            "columns": {"byId": columns, "allIds": list(columns.keys())},
+            "rows": {"byId": rows, "allIds": list(rows.keys())},
         }
 
         return backend_payload
@@ -620,28 +801,23 @@ class ReconciliationManager:
         Convert a list returned by the reconciliator into the compact
         annotationMeta structure used in our table format.
         """
-        if not metadata_list:                         # no result → not annotated
-            return {
-                'annotated': False,
-                'match'    : {'value': False}
-            }
+        if not metadata_list:  # no result → not annotated
+            return {"annotated": False, "match": {"value": False}}
 
         # collect scores & match flags
-        scores = [m.get('score', 0) for m in metadata_list if 'score' in m]
-        best_match = any(m.get('match', False) for m in metadata_list)
+        scores = [m.get("score", 0) for m in metadata_list if "score" in m]
+        best_match = any(m.get("match", False) for m in metadata_list)
 
         return {
-            'annotated'   : True,
-            'match'       : {'value': best_match,
-                            'reason': 'reconciliator'},
-            'lowestScore' : min(scores) if scores else 0,
-            'highestScore': max(scores) if scores else 0
+            "annotated": True,
+            "match": {"value": best_match, "reason": "reconciliator"},
+            "lowestScore": min(scores) if scores else 0,
+            "highestScore": max(scores) if scores else 0,
         }
 
-    def _build_mini_table(self,
-                      full_table: dict,
-                      main_col   : str,
-                      extra_cols : list[str] | None = None):
+    def _build_mini_table(
+        self, full_table: dict, main_col: str, extra_cols: list[str] | None = None
+    ):
         """
         Return  (mini_table, key_map)
 
@@ -654,36 +830,40 @@ class ReconciliationManager:
         extra_cols = extra_cols or []
 
         def _row_key(row):
-            parts = [row['cells'][main_col]['label']]
+            parts = [row["cells"][main_col]["label"]]
             for c in extra_cols:
-                parts.append(row['cells'][c]['label'])
-            return tuple(parts)                      # immutable / hashable
+                parts.append(row["cells"][c]["label"])
+            return tuple(parts)  # immutable / hashable
 
-        key2row   = {}                              # deduplication
-        key_map   = {}                              # original row → key
+        key2row = {}  # deduplication
+        key_map = {}  # original row → key
 
         # keep FIRST row id per unique key
-        for row_id, row in full_table['rows'].items():
+        for row_id, row in full_table["rows"].items():
             k = _row_key(row)
             key_map[row_id] = k
             if k not in key2row:
                 key2row[k] = row_id
 
         # build the mini-table from those row ids
-        mini_table         = copy.deepcopy(full_table)
-        mini_table['rows'] = {rid: full_table['rows'][rid] for rid in key2row.values()}
-        mini_table['table']['nRows']  = len(mini_table['rows'])
-        mini_table['table']['nCells'] = len(mini_table['rows']) * len(full_table['columns'])
+        mini_table = copy.deepcopy(full_table)
+        mini_table["rows"] = {rid: full_table["rows"][rid] for rid in key2row.values()}
+        mini_table["table"]["nRows"] = len(mini_table["rows"])
+        mini_table["table"]["nCells"] = len(mini_table["rows"]) * len(
+            full_table["columns"]
+        )
 
         return mini_table, key_map
 
-    def reconcile(self,
-              table_data      : dict,
-              column_name     : str,
-              reconciliator_id: str,
-              optional_columns: list[str] | None = None,
-              *,
-              deduplicate     : bool = False):
+    def reconcile(
+        self,
+        table_data: dict,
+        column_name: str,
+        reconciliator_id: str,
+        optional_columns: list[str] | None = None,
+        *,
+        deduplicate: bool = False,
+    ):
         """
         Perform reconciliation – optionally deduplicating identical values
         before the remote call.
@@ -699,7 +879,7 @@ class ReconciliationManager:
                 mini_table, column_name, reconciliator_id, optional_columns
             )
         else:
-            key_map    = None            # not needed
+            key_map = None  # not needed
             input_data = self._prepare_input_data(
                 table_data, column_name, reconciliator_id, optional_columns
             )
@@ -719,9 +899,9 @@ class ReconciliationManager:
             final_table = self._expand_results_to_duplicates(
                 full_table=table_data,
                 mini_table=mini_reconciled,
-                key_map   =key_map,
-                main_col  =column_name,
-                extra_cols=optional_columns
+                key_map=key_map,
+                main_col=column_name,
+                extra_cols=optional_columns,
             )
         else:
             final_table = self._compose_reconciled_table(
@@ -730,13 +910,15 @@ class ReconciliationManager:
 
         backend_payload = self._create_backend_payload(final_table)
         return final_table, backend_payload
-    
-    def _expand_results_to_duplicates(self,
-                                  full_table: dict,
-                                  mini_table: dict,
-                                  key_map   : dict,
-                                  main_col  : str,
-                                  extra_cols: list[str]) -> dict:
+
+    def _expand_results_to_duplicates(
+        self,
+        full_table: dict,
+        mini_table: dict,
+        key_map: dict,
+        main_col: str,
+        extra_cols: list[str],
+    ) -> dict:
         """
         Take the reconciled *mini_table* and fill the corresponding metadata
         into every original row that had the same key.
@@ -744,30 +926,31 @@ class ReconciliationManager:
 
         # 3-a  build  key → metadata  lookup out of the reconciled mini-table
         def _row_key(row):
-            parts = [row['cells'][main_col]['label']]
+            parts = [row["cells"][main_col]["label"]]
             for c in extra_cols:
-                parts.append(row['cells'][c]['label'])
+                parts.append(row["cells"][c]["label"])
             return tuple(parts)
 
         key2meta = {}
-        for row in mini_table['rows'].values():
+        for row in mini_table["rows"].values():
             k = _row_key(row)
-            key2meta[k] = row['cells'][main_col]['metadata']
+            key2meta[k] = row["cells"][main_col]["metadata"]
 
         # 3-b  copy into *all* rows of the original table
-        for row_id, row in full_table['rows'].items():
+        for row_id, row in full_table["rows"].items():
             k = key_map[row_id]
             if k in key2meta:
-                cell = row['cells'][main_col]
-                cell['metadata']      = copy.deepcopy(key2meta[k])
-                cell['annotationMeta'] = self._create_annotation_meta_from_metadata(
-                                            cell['metadata']
-                                        )
+                cell = row["cells"][main_col]
+                cell["metadata"] = copy.deepcopy(key2meta[k])
+                cell["annotationMeta"] = self._create_annotation_meta_from_metadata(
+                    cell["metadata"]
+                )
 
         # refresh simple counters
-        full_table['table']['nCellsReconciliated'] = sum(
-            1 for r in full_table['rows'].values()
-            for c in r['cells'].values()
-            if c.get('annotationMeta', {}).get('annotated')
+        full_table["table"]["nCellsReconciliated"] = sum(
+            1
+            for r in full_table["rows"].values()
+            for c in r["cells"].values()
+            if c.get("annotationMeta", {}).get("annotated")
         )
         return full_table

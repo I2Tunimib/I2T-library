@@ -8,6 +8,7 @@ from copy import deepcopy
 from .auth_manager import AuthManager
 from typing import Dict, Any, Optional, Tuple, List
 
+
 class ExtensionManager:
     """
     A class to manage extensions through API interactions.
@@ -24,11 +25,11 @@ class ExtensionManager:
         :param base_url: The base URL for the API.
         :param auth_or_token: Either an Auth_manager instance or a token string.
         """
-        self.base_url = base_url.rstrip('/') + '/'
-        self.api_url = urljoin(self.base_url, 'api/')
-        
+        self.base_url = base_url.rstrip("/") + "/"
+        self.api_url = urljoin(self.base_url, "api/")
+
         # Handle both Auth_manager and token string for backward compatibility
-        if hasattr(auth_or_token, 'get_token'):
+        if hasattr(auth_or_token, "get_token"):
             # It's an Auth_manager instance
             self.Auth_manager = auth_or_token
             self.token = None
@@ -46,17 +47,17 @@ class ExtensionManager:
             token = self.Auth_manager.get_token()
         else:
             token = self.token
-            
+
         return {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
         }
-    
+
     def get_property_suggestions(self, table_data, reconciled_column_name, debug=False):
         """
         Get property suggestions for a reconciled column from Wikidata.
-        
+
         :param table_data: The table containing reconciled data
         :param reconciled_column_name: Name of the reconciled column
         :param debug: Boolean flag to enable/disable debug information
@@ -65,143 +66,168 @@ class ExtensionManager:
         try:
             # Extract reconciled entities from the table
             entities_data = []
-            
-            if 'rows' not in table_data:
+
+            if "rows" not in table_data:
                 if debug:
                     print("No rows found in table data")
                 return None
-                
+
             # Extract entities from each row's reconciled column
-            for row_id, row_data in table_data['rows'].items():
-                if reconciled_column_name in row_data['cells']:
-                    cell = row_data['cells'][reconciled_column_name]
-                    if 'metadata' in cell and cell['metadata']:
+            for row_id, row_data in table_data["rows"].items():
+                if reconciled_column_name in row_data["cells"]:
+                    cell = row_data["cells"][reconciled_column_name]
+                    if "metadata" in cell and cell["metadata"]:
                         # Take the first (best) reconciled entity from each cell
-                        for metadata in cell['metadata'][:1]:  # Only take the first/best match
-                            entity_id = metadata.get('id', '')
+                        for metadata in cell["metadata"][
+                            :1
+                        ]:  # Only take the first/best match
+                            entity_id = metadata.get("id", "")
                             # Handle both wd: and wdA: prefixes
-                            if entity_id and (entity_id.startswith('wd:') or entity_id.startswith('wdA:')):
+                            if entity_id and (
+                                entity_id.startswith("wd:")
+                                or entity_id.startswith("wdA:")
+                            ):
                                 # Normalize to standard Wikidata format for the suggestion API
-                                normalized_id = entity_id.replace('wdA:', 'wd:') if entity_id.startswith('wdA:') else entity_id
-                                
+                                normalized_id = (
+                                    entity_id.replace("wdA:", "wd:")
+                                    if entity_id.startswith("wdA:")
+                                    else entity_id
+                                )
+
                                 entity_data = {
-                                    'id': normalized_id,
-                                    'name': metadata.get('name', {}),
-                                    'description': metadata.get('description', ''),
-                                    'features': metadata.get('features', []),
-                                    'match': metadata.get('match', True),
-                                    'score': metadata.get('score', 100),
-                                    'type': metadata.get('type', [])
+                                    "id": normalized_id,
+                                    "name": metadata.get("name", {}),
+                                    "description": metadata.get("description", ""),
+                                    "features": metadata.get("features", []),
+                                    "match": metadata.get("match", True),
+                                    "score": metadata.get("score", 100),
+                                    "type": metadata.get("type", []),
                                 }
                                 entities_data.append(entity_data)
                                 break  # Only take one entity per row
-            
+
             if not entities_data:
                 if debug:
                     print("No reconciled entities found in the table")
                 return None
-            
+
             # Send request to suggestion API
-            url = urljoin(self.api_url, 'suggestion/wikidata')
+            url = urljoin(self.api_url, "suggestion/wikidata")
             headers = self._get_headers()
-            
+
             if debug:
                 print(f"Sending suggestion request with {len(entities_data)} entities:")
                 print(json.dumps(entities_data[:2], indent=2))  # Show first 2 entities
-            
+
             response = requests.post(url, headers=headers, json=entities_data)
             response.raise_for_status()
-            
+
             result = response.json()
-            
+
             if debug:
                 print(f"Suggestion response status: {response.status_code}")
                 print(f"Number of suggested properties: {len(result.get('data', []))}")
-            
+
             return result
-        
+
         except requests.exceptions.RequestException as e:
             if debug:
                 print(f"Error getting property suggestions: {e}")
             return None
-       
-    def get_property_suggestions_for_column(self, table_data, reconciled_column_name, top_n=20, debug=False):
+
+    def get_property_suggestions_for_column(
+        self, table_data, reconciled_column_name, top_n=20, debug=False
+    ):
         """
         Get property suggestions and display them in a clean, user-friendly format.
-        
+
         :param table_data: The table containing reconciled data
         :param reconciled_column_name: Name of the reconciled column
         :param top_n: Number of top suggestions to display (default: 20)
         :param debug: Boolean flag to enable/disable debug information
         :return: Formatted suggestions data
         """
-        suggestions = self.get_property_suggestions(table_data, reconciled_column_name, debug)
-        
-        if not suggestions or 'data' not in suggestions:
+        suggestions = self.get_property_suggestions(
+            table_data, reconciled_column_name, debug
+        )
+
+        if not suggestions or "data" not in suggestions:
             print(f"No suggestions found for column '{reconciled_column_name}'")
             return None
-        
+
         # Always show the clean formatted output
-        print(f"\nTop {top_n} property suggestions for column '{reconciled_column_name}':")
+        print(
+            f"\nTop {top_n} property suggestions for column '{reconciled_column_name}':"
+        )
         print("=" * 80)
-        
-        for i, prop in enumerate(suggestions['data'][:top_n], 1):
+
+        for i, prop in enumerate(suggestions["data"][:top_n], 1):
             # Round percentage to 1 decimal place for cleaner display
-            percentage = round(prop['percentage'], 1)
+            percentage = round(prop["percentage"], 1)
             print(f"{i:2d}. {prop['id']}: {prop['label']} ({percentage}% coverage)")
-        
+
         print("=" * 80)
         print(f"Total properties available: {len(suggestions['data'])}")
-        
+
         return suggestions
-    
-    def get_property_suggestions_simple(self, table_data, reconciled_column_name, top_n=10):
+
+    def get_property_suggestions_simple(
+        self, table_data, reconciled_column_name, top_n=10
+    ):
         """
         Get property suggestions with minimal output - just returns the data.
-        
+
         :param table_data: The table containing reconciled data
         :param reconciled_column_name: Name of the reconciled column
         :param top_n: Number of top suggestions to return (default: 10)
         :return: List of top suggestions
         """
-        suggestions = self.get_property_suggestions(table_data, reconciled_column_name, debug=False)
-        
-        if not suggestions or 'data' not in suggestions:
+        suggestions = self.get_property_suggestions(
+            table_data, reconciled_column_name, debug=False
+        )
+
+        if not suggestions or "data" not in suggestions:
             return []
-        
+
         # Return just the top N suggestions with clean percentage values
         top_suggestions = []
-        for prop in suggestions['data'][:top_n]:
-            top_suggestions.append({
-                'id': prop['id'],
-                'label': prop['label'],
-                'percentage': round(prop['percentage'], 1),
-                'count': prop['count']
-            })
-        
+        for prop in suggestions["data"][:top_n]:
+            top_suggestions.append(
+                {
+                    "id": prop["id"],
+                    "label": prop["label"],
+                    "percentage": round(prop["percentage"], 1),
+                    "count": prop["count"],
+                }
+            )
+
         return top_suggestions
 
     def display_suggestions_table(self, suggestions_data, title="Property Suggestions"):
         """
         Display suggestions in a nice table format using pandas.
-        
+
         :param suggestions_data: List of suggestion dictionaries
         :param title: Title for the table
         """
         if not suggestions_data:
             print("No suggestions to display")
             return
-        
+
         import pandas as pd
-        
+
         df = pd.DataFrame(suggestions_data)
         df.index = df.index + 1  # Start index from 1
-        
+
         print(f"\n{title}:")
         print("=" * 60)
-        print(df.to_string(index=True, 
-                          columns=['id', 'label', 'percentage'], 
-                          formatters={'percentage': '{:.1f}%'.format}))
+        print(
+            df.to_string(
+                index=True,
+                columns=["id", "label", "percentage"],
+                formatters={"percentage": "{:.1f}%".format},
+            )
+        )
         print("=" * 60)
 
     def _create_backend_payload(self, reconciled_json):
@@ -212,50 +238,51 @@ class ExtensionManager:
         :return: A dictionary representing the backend payload.
         """
         nCellsReconciliated = sum(
-            1 for row in reconciled_json['rows'].values()
-            for cell in row['cells'].values()
-            if cell.get('annotationMeta', {}).get('annotated', False)
+            1
+            for row in reconciled_json["rows"].values()
+            for cell in row["cells"].values()
+            if cell.get("annotationMeta", {}).get("annotated", False)
         )
         all_scores = [
-            cell.get('annotationMeta', {}).get('lowestScore', float('inf'))
-            for row in reconciled_json['rows'].values()
-            for cell in row['cells'].values()
-            if cell.get('annotationMeta', {}).get('annotated', False)
+            cell.get("annotationMeta", {}).get("lowestScore", float("inf"))
+            for row in reconciled_json["rows"].values()
+            for cell in row["cells"].values()
+            if cell.get("annotationMeta", {}).get("annotated", False)
         ]
         minMetaScore = min(all_scores) if all_scores else 0
         maxMetaScore = max(all_scores) if all_scores else 1
         payload = {
             "tableInstance": {
-                "id": reconciled_json['table']['id'],
-                "idDataset": reconciled_json['table']['idDataset'],
-                "name": reconciled_json['table']['name'],
+                "id": reconciled_json["table"]["id"],
+                "idDataset": reconciled_json["table"]["idDataset"],
+                "name": reconciled_json["table"]["name"],
                 "nCols": reconciled_json["table"]["nCols"],
                 "nRows": reconciled_json["table"]["nRows"],
                 "nCells": reconciled_json["table"]["nCells"],
                 "nCellsReconciliated": nCellsReconciliated,
                 "lastModifiedDate": reconciled_json["table"]["lastModifiedDate"],
                 "minMetaScore": minMetaScore,
-                "maxMetaScore": maxMetaScore
+                "maxMetaScore": maxMetaScore,
             },
             "columns": {
-                "byId": reconciled_json['columns'],
-                "allIds": list(reconciled_json['columns'].keys())
+                "byId": reconciled_json["columns"],
+                "allIds": list(reconciled_json["columns"].keys()),
             },
             "rows": {
-                "byId": reconciled_json['rows'],
-                "allIds": list(reconciled_json['rows'].keys())
-            }
+                "byId": reconciled_json["rows"],
+                "allIds": list(reconciled_json["rows"].keys()),
+            },
         }
         return payload
-    
+
     def _prepare_input_data_meteo(
         self,
-        table,                    # <- original table
-        reconciled_column_name,   # <- the geo column
-        id_extender,              # <- always  meteoPropertiesOpenMeteo
-        properties,               # <- list of weather parameters
+        table,  # <- original table
+        reconciled_column_name,  # <- the geo column
+        id_extender,  # <- always  meteoPropertiesOpenMeteo
+        properties,  # <- list of weather parameters
         date_column_name,
-        decimal_format            # <- "." or "comma"
+        decimal_format,  # <- "." or "comma"
     ):
         """
         Create the payload for the meteoPropertiesOpenMeteo extender but
@@ -263,11 +290,11 @@ class ExtensionManager:
         """
 
         valid_rows = {}
-        for row_id, row in table['rows'].items():
-            cell_meta = row['cells'][reconciled_column_name].get('metadata', [])
+        for row_id, row in table["rows"].items():
+            cell_meta = row["cells"][reconciled_column_name].get("metadata", [])
             if cell_meta:
                 # take the *first* entity id
-                valid_rows[row_id] = cell_meta[0]['id']
+                valid_rows[row_id] = cell_meta[0]["id"]
 
         if not valid_rows:
             raise ValueError(
@@ -278,25 +305,24 @@ class ExtensionManager:
         # keep the two maps (items / dates) in sync
         items = {reconciled_column_name: valid_rows}
         dates = {
-            row_id: [table['rows'][row_id]['cells'][date_column_name]['label'],
-                    [], date_column_name]
+            row_id: [
+                table["rows"][row_id]["cells"][date_column_name]["label"],
+                [],
+                date_column_name,
+            ]
             for row_id in valid_rows.keys()
         }
 
         return {
-            "serviceId"    : id_extender,
-            "items"        : items,
-            "dates"        : dates,
+            "serviceId": id_extender,
+            "items": items,
+            "dates": dates,
             "weatherParams": properties,
-            "decimalFormat": [decimal_format] if decimal_format else []
+            "decimalFormat": [decimal_format] if decimal_format else [],
         }
 
     def _prepare_input_data_reconciled(
-        self,
-        table,
-        reconciled_column_name,
-        properties,
-        id_extender
+        self, table, reconciled_column_name, properties, id_extender
     ):
         """
         Same idea as above: build the payload **only** with rows that
@@ -306,15 +332,15 @@ class ExtensionManager:
         items = {reconciled_column_name: {}}
         column_map = {}
 
-        for row_id, row in table['rows'].items():
-            meta = row['cells'][reconciled_column_name].get('metadata', [])
+        for row_id, row in table["rows"].items():
+            meta = row["cells"][reconciled_column_name].get("metadata", [])
             if meta:
-                entity_id = meta[0]['id']
+                entity_id = meta[0]["id"]
                 items[reconciled_column_name][row_id] = entity_id
                 column_map[row_id] = [
-                    row['cells'][reconciled_column_name]['label'],
+                    row["cells"][reconciled_column_name]["label"],
                     meta,
-                    reconciled_column_name
+                    reconciled_column_name,
                 ]
 
         if not items[reconciled_column_name]:
@@ -325,15 +351,17 @@ class ExtensionManager:
 
         return {
             "serviceId": id_extender,
-            "items"    : items,
-            "column"   : column_map,
-            "property" : properties
+            "items": items,
+            "column": column_map,
+            "property": properties,
         }
 
-    def _prepare_input_data_llm_classifier(self, table, reconciled_column_name, properties, id_extender):
+    def _prepare_input_data_llm_classifier(
+        self, table, reconciled_column_name, properties, id_extender
+    ):
         """
         Prepare input data for the llmClassifier extender.
-        
+
         :param table: The input table containing data.
         :param reconciled_column_name: The name of the reconciled column.
         :param properties: Dictionary with 'description' and 'country' column names
@@ -343,65 +371,129 @@ class ExtensionManager:
         """
         # Build main items structure: rowId -> {kbId, value}
         items = {reconciled_column_name: {}}
-        
+
         # Build props structure for additional columns
         props = {}
-        
+
         # Initialize props structure
-        if 'description' in properties and properties['description']:
-            props['description'] = {}
-        if 'country' in properties and properties['country']:
-            props['country'] = {}
-        
-        for row_id, row in table['rows'].items():
-            if reconciled_column_name in row['cells']:
-                cell = row['cells'][reconciled_column_name]
-                if 'metadata' in cell and cell['metadata']:
+        if "description" in properties and properties["description"]:
+            props["description"] = {}
+        if "country" in properties and properties["country"]:
+            props["country"] = {}
+
+        for row_id, row in table["rows"].items():
+            if reconciled_column_name in row["cells"]:
+                cell = row["cells"][reconciled_column_name]
+                if "metadata" in cell and cell["metadata"]:
                     # Get the first (best match) entity
-                    entity_id = cell['metadata'][0].get('id', '')
-                    cell_value = cell.get('label', '')
-                    
+                    entity_id = cell["metadata"][0].get("id", "")
+                    cell_value = cell.get("label", "")
+
                     if entity_id:
                         # Main items structure
                         items[reconciled_column_name][row_id] = {
-                            'kbId': entity_id,
-                            'value': cell_value
+                            "kbId": entity_id,
+                            "value": cell_value,
                         }
-                        
+
                         # Props structure - description column
-                        if 'description' in properties and properties['description']:
-                            desc_col = properties['description']
-                            if desc_col in row['cells']:
-                                desc_value = row['cells'][desc_col].get('label', '')
-                                props['description'][row_id] = [desc_value]
+                        if "description" in properties and properties["description"]:
+                            desc_col = properties["description"]
+                            if desc_col in row["cells"]:
+                                desc_value = row["cells"][desc_col].get("label", "")
+                                props["description"][row_id] = [desc_value]
                             else:
-                                props['description'][row_id] = ['']
-                        
-                        # Props structure - country column  
-                        if 'country' in properties and properties['country']:
-                            country_col = properties['country']
-                            if country_col in row['cells']:
-                                country_value = row['cells'][country_col].get('label', '')
-                                props['country'][row_id] = [country_value]
+                                props["description"][row_id] = [""]
+
+                        # Props structure - country column
+                        if "country" in properties and properties["country"]:
+                            country_col = properties["country"]
+                            if country_col in row["cells"]:
+                                country_value = row["cells"][country_col].get(
+                                    "label", ""
+                                )
+                                props["country"][row_id] = [country_value]
                             else:
-                                props['country'][row_id] = ['']
-        
+                                props["country"][row_id] = [""]
+
         if not items[reconciled_column_name]:
             raise ValueError(
                 f"No reconciled entities found in column '{reconciled_column_name}'. "
                 "The column must be reconciled before you can extend it."
             )
-        
-        return {
-            "serviceId": id_extender,
-            "items": items,
-            "props": props
-        }
 
-    def _prepare_input_data_reconciled_wikidata(self, table, reconciled_column_name, properties, id_extender):
+        return {"serviceId": id_extender, "items": items, "props": props}
+
+    def _prepare_input_data_ch_matching(
+        self, table, column_name, properties, id_extender, address_columns=None
+    ):
+        """
+        Prepare input data for the chMatching extender.
+
+        :param table: The input table containing data.
+        :param column_name: The name of the column containing company names.
+        :param properties: Not used for chMatching, but kept for consistency.
+        :param id_extender: The ID of the extender to use.
+        :param address_columns: Dictionary mapping address types to column names
+                              e.g., {'line_1': 'address_col1', 'line_2': 'address_col2', 'postcode': 'postcode_col'}
+        :return: A dictionary representing the payload for the extender.
+        """
+        # Build main items structure: rowId -> {value}
+        items = {column_name: {}}
+
+        # Build props structure for additional address columns
+        props = {}
+
+        # Initialize additionalColumns in props if address columns are provided
+        if address_columns:
+            props["additionalColumns"] = {}
+            for address_type, col_name in address_columns.items():
+                if col_name and col_name in table.get("columns", {}):
+                    props["additionalColumns"][col_name] = {}
+
+        # Process each row
+        for row_id, row in table["rows"].items():
+            if column_name in row["cells"]:
+                cell = row["cells"][column_name]
+                company_name = cell.get("label", "")
+
+                if company_name:
+                    # Main items structure - company names
+                    items[column_name][row_id] = {"value": company_name}
+
+                    # Props structure - address columns
+                    if address_columns and "additionalColumns" in props:
+                        for address_type, col_name in address_columns.items():
+                            if col_name and col_name in row["cells"]:
+                                address_value = row["cells"][col_name].get("label", "")
+                                if col_name in props["additionalColumns"]:
+                                    props["additionalColumns"][col_name][row_id] = [
+                                        address_value
+                                    ]
+                            elif col_name and col_name in props["additionalColumns"]:
+                                # Add empty value if column exists but no data for this row
+                                props["additionalColumns"][col_name][row_id] = [""]
+
+        if not items[column_name]:
+            raise ValueError(
+                f"No company names found in column '{column_name}'. "
+                "Please ensure the column contains company names to match."
+            )
+
+        payload = {"serviceId": id_extender, "items": items}
+
+        # Only add props if we have address columns
+        if props:
+            payload["props"] = props
+
+        return payload
+
+    def _prepare_input_data_reconciled_wikidata(
+        self, table, reconciled_column_name, properties, id_extender
+    ):
         """
         Prepare input data for the reconciledColumnExtWikidata extender.
-        
+
         :param table: The input table containing data.
         :param reconciled_column_name: The name of the reconciled column.
         :param properties: List of label properties ['id', 'name', 'description', 'url']
@@ -410,33 +502,35 @@ class ExtensionManager:
         """
         # Build row_id -> entity_id mapping (correct format)
         items = {reconciled_column_name: {}}
-        
-        for row_id, row in table['rows'].items():
-            if reconciled_column_name in row['cells']:
-                cell = row['cells'][reconciled_column_name]
-                if 'metadata' in cell and cell['metadata']:
+
+        for row_id, row in table["rows"].items():
+            if reconciled_column_name in row["cells"]:
+                cell = row["cells"][reconciled_column_name]
+                if "metadata" in cell and cell["metadata"]:
                     # Get the first (best match) entity ID
-                    entity_id = cell['metadata'][0].get('id', '')
+                    entity_id = cell["metadata"][0].get("id", "")
                     if entity_id:
                         # Map row_id -> entity_id (this is the correct format)
                         items[reconciled_column_name][row_id] = entity_id
-        
+
         if not items[reconciled_column_name]:
             raise ValueError(
                 f"No reconciled entities found in column '{reconciled_column_name}'. "
                 "The column must be reconciled before you can extend it."
             )
-        
+
         return {
             "serviceId": id_extender,
             "items": items,
-            "labels": properties  # List of label properties
+            "labels": properties,  # List of label properties
         }
 
-    def _prepare_input_data_wikidata_property(self, table, reconciled_column_name, properties, id_extender):
+    def _prepare_input_data_wikidata_property(
+        self, table, reconciled_column_name, properties, id_extender
+    ):
         """
         Prepare input data for the wikidataPropertySPARQL extender.
-        
+
         :param table: The input table containing data.
         :param reconciled_column_name: The name of the reconciled column.
         :param properties: Space-separated string of property IDs (e.g., "P625 P131 P373").
@@ -444,26 +538,24 @@ class ExtensionManager:
         :return: A dictionary representing the payload for the extender.
         """
         # Extract reconciled entity IDs from the table
-        items = {
-            reconciled_column_name: {}
-        }
-        
-        for row_id, row in table['rows'].items():
-            if reconciled_column_name in row['cells']:
-                cell = row['cells'][reconciled_column_name]
-                if 'metadata' in cell and cell['metadata']:
+        items = {reconciled_column_name: {}}
+
+        for row_id, row in table["rows"].items():
+            if reconciled_column_name in row["cells"]:
+                cell = row["cells"][reconciled_column_name]
+                if "metadata" in cell and cell["metadata"]:
                     # Get the entity ID from the first metadata entry
-                    entity_id = cell['metadata'][0].get('id', '')
+                    entity_id = cell["metadata"][0].get("id", "")
                     if entity_id:
                         # Handle both wd: and wdA: prefixes - keep original format
                         items[reconciled_column_name][row_id] = entity_id
-        
+
         payload = {
             "serviceId": id_extender,
             "items": items,
-            "properties": properties  # Space-separated string of property IDs
+            "properties": properties,  # Space-separated string of property IDs
         }
-        
+
         return payload
 
     def _send_extension_request(self, payload, extender_id, debug=False):
@@ -478,31 +570,31 @@ class ExtensionManager:
         """
         try:
             # Use different endpoints for different extenders
-            if extender_id == 'wikidataPropertySPARQL':
-                url = urljoin(self.api_url, 'extenders/wikidata/entities')
+            if extender_id == "wikidataPropertySPARQL":
+                url = urljoin(self.api_url, "extenders/wikidata/entities")
             else:
-                url = urljoin(self.api_url, 'extenders')
-            
+                url = urljoin(self.api_url, "extenders")
+
             headers = self._get_headers()
-            
+
             if debug:
                 print(f"Sending payload to extender service ({extender_id}):")
                 print(f"URL: {url}")
                 print(json.dumps(payload, indent=2))
-            
+
             response = requests.post(url, headers=headers, json=payload)
             response.raise_for_status()
-            
+
             if debug:
                 print("Received response from extender service:")
                 print(f"Status Code: {response.status_code}")
                 print(f"Response Content: {response.text[:500]}...")  # First 500 chars
-            
+
             return response.json()
         except requests.exceptions.HTTPError as http_err:
             if debug:
                 print(f"HTTP error occurred: {http_err}")
-                if hasattr(http_err, 'response') and http_err.response is not None:
+                if hasattr(http_err, "response") and http_err.response is not None:
                     print(f"Response Content: {http_err.response.text}")
             raise
         except Exception as err:
@@ -516,76 +608,78 @@ class ExtensionManager:
         correctly between entity columns and literal columns.
         """
         # ── header meta ────────────────────────────────────────────────────────────
-        if 'meta' in extension_response:
-            table['table'].update(extension_response['meta'])
+        if "meta" in extension_response:
+            table["table"].update(extension_response["meta"])
 
         # map property-id → new column name  (for cross-references later)
         property_id_to_column_name = {}
-        for col_name, col_data in extension_response['columns'].items():
-            for md in col_data.get('metadata', []):
-                property_id_to_column_name[md.get('id')] = col_name
+        for col_name, col_data in extension_response["columns"].items():
+            for md in col_data.get("metadata", []):
+                property_id_to_column_name[md.get("id")] = col_name
 
         # ── create / fill columns and cells ────────────────────────────────────────
-        for col_name, col_data in extension_response['columns'].items():
-
+        for col_name, col_data in extension_response["columns"].items():
             # Decide if this column contains entities
             has_entities = self._column_has_entity_metadata(col_data)
-            status       = 'reconciliated' if has_entities else 'empty'
-            context      = self._extract_context_from_cells(col_data) if has_entities else {}
+            status = "reconciliated" if has_entities else "empty"
+            context = self._extract_context_from_cells(col_data) if has_entities else {}
 
-            table['columns'][col_name] = {
-                'id'           : col_name,
-                'label'        : col_data['label'],
-                'status'       : status,
-                'context'      : context,
-                'metadata'     : col_data.get('metadata', []),
-                'annotationMeta': {}
+            table["columns"][col_name] = {
+                "id": col_name,
+                "label": col_data["label"],
+                "status": status,
+                "context": context,
+                "metadata": col_data.get("metadata", []),
+                "annotationMeta": {},
             }
 
             # cells
-            for row_id, cell_data in col_data['cells'].items():
-                if row_id not in table['rows']:
+            for row_id, cell_data in col_data["cells"].items():
+                if row_id not in table["rows"]:
                     continue
 
-                raw_meta = cell_data.get('metadata', [])
+                raw_meta = cell_data.get("metadata", [])
 
                 if self._metadata_is_entity(raw_meta):
-                    cell_meta      = raw_meta
-                    annotation_meta = self._create_annotation_meta_from_metadata(raw_meta)
+                    cell_meta = raw_meta
+                    annotation_meta = self._create_annotation_meta_from_metadata(
+                        raw_meta
+                    )
                 else:
-                    cell_meta      = []                             # literal → no metadata
-                    annotation_meta = {'annotated': False,
-                                    'match'     : {'value': False}}
+                    cell_meta = []  # literal → no metadata
+                    annotation_meta = {"annotated": False, "match": {"value": False}}
 
-                table['rows'][row_id]['cells'][col_name] = {
-                    'id'            : f"{row_id}${col_name}",
-                    'label'         : cell_data['label'],
-                    'metadata'      : cell_meta,
-                    'annotationMeta': annotation_meta
+                table["rows"][row_id]["cells"][col_name] = {
+                    "id": f"{row_id}${col_name}",
+                    "label": cell_data["label"],
+                    "metadata": cell_meta,
+                    "annotationMeta": annotation_meta,
                 }
 
         # ── cross-reference properties back to the original reconciled column ─────
-        if 'originalColMeta' in extension_response:
-            orig_col = extension_response['originalColMeta']['originalColName']
-            if orig_col in table['columns']:
-                table['columns'][orig_col]['kind'] = 'entity'
-                main_md = table['columns'][orig_col]['metadata'][0]
+        if "originalColMeta" in extension_response:
+            orig_col = extension_response["originalColMeta"]["originalColName"]
+            if orig_col in table["columns"]:
+                table["columns"][orig_col]["kind"] = "entity"
+                main_md = table["columns"][orig_col]["metadata"][0]
 
-                main_md.setdefault('property', [])
-                for prop in extension_response['originalColMeta'].get('properties', []):
-                    col_for_prop = property_id_to_column_name.get(prop['id'])
+                main_md.setdefault("property", [])
+                for prop in extension_response["originalColMeta"].get("properties", []):
+                    col_for_prop = property_id_to_column_name.get(prop["id"])
                     if col_for_prop:
-                        main_md['property'].append({
-                            'id'   : prop['id'],
-                            'obj'  : col_for_prop,
-                            'name' : prop.get('name', ''),
-                            'match': True,
-                            'score': 1
-                        })
+                        main_md["property"].append(
+                            {
+                                "id": prop["id"],
+                                "obj": col_for_prop,
+                                "name": prop.get("name", ""),
+                                "match": True,
+                                "score": 1,
+                            }
+                        )
 
         # ── update basic counts ────────────────────────────────────────────────────
-        table['table']['nCols']  = len(table['columns'])
-        table['table']['nCells'] = sum(len(r['cells']) for r in table['rows'].values())
+        table["table"]["nCols"] = len(table["columns"])
+        table["table"]["nCells"] = sum(len(r["cells"]) for r in table["rows"].values())
 
         return table
 
@@ -594,11 +688,11 @@ class ExtensionManager:
         A column is considered an ‘entity column’ when at least one of its cells
         carries entity metadata (metadata whose id is a Wikidata Q-identifier).
         """
-        if 'cells' not in column_data:
+        if "cells" not in column_data:
             return False
 
-        for cell_data in column_data['cells'].values():
-            if self._metadata_is_entity(cell_data.get('metadata', [])):
+        for cell_data in column_data["cells"].values():
+            if self._metadata_is_entity(cell_data.get("metadata", [])):
                 return True
         return False
 
@@ -629,20 +723,21 @@ class ExtensionManager:
         """
         Build reconciliation context (counts) for entity columns only.
         """
-        if 'cells' not in column_data:
+        if "cells" not in column_data:
             return {}
 
-        total_cells = len(column_data['cells'])
+        total_cells = len(column_data["cells"])
         reconciled_cells = sum(
-            1 for cell in column_data['cells'].values()
-            if self._metadata_is_entity(cell.get('metadata', []))
+            1
+            for cell in column_data["cells"].values()
+            if self._metadata_is_entity(cell.get("metadata", []))
         )
 
         return {
-            'wd': {
-                'uri': 'https://www.wikidata.org/wiki/',
-                'total': total_cells,
-                'reconciliated': reconciled_cells
+            "wd": {
+                "uri": "https://www.wikidata.org/wiki/",
+                "total": total_cells,
+                "reconciliated": reconciled_cells,
             }
         }
 
@@ -651,24 +746,20 @@ class ExtensionManager:
         Create annotation metadata from existing cell metadata.
         """
         if not metadata_list:
-            return {
-                'annotated': False,
-                'match': {'value': False}
-            }
-        
-        scores = [m.get('score', 100) for m in metadata_list if 'score' in m]
-        
+            return {"annotated": False, "match": {"value": False}}
+
+        scores = [m.get("score", 100) for m in metadata_list if "score" in m]
+
         return {
-            'annotated': True,
-            'match': {'value': True, 'reason': 'reconciliator'},
-            'lowestScore': min(scores) if scores else 100,
-            'highestScore': max(scores) if scores else 100
+            "annotated": True,
+            "match": {"value": True, "reason": "reconciliator"},
+            "lowestScore": min(scores) if scores else 100,
+            "highestScore": max(scores) if scores else 100,
         }
 
-    def _build_mini_table(self,
-                      full_table : dict,
-                      main_col   : str,
-                      extra_cols : list[str] | None = None):
+    def _build_mini_table(
+        self, full_table: dict, main_col: str, extra_cols: list[str] | None = None
+    ):
         """
         Return  mini_table, key_map
 
@@ -681,35 +772,39 @@ class ExtensionManager:
         extra_cols = extra_cols or []
 
         def row_key(row):
-            parts = [row['cells'][main_col]['label']]
+            parts = [row["cells"][main_col]["label"]]
             for col in extra_cols:
-                parts.append(row['cells'][col]['label'])
+                parts.append(row["cells"][col]["label"])
             return tuple(parts)
 
-        key2row   = {}          # deduplication map
-        key_map   = {}          # original row_id → tuple key
+        key2row = {}  # deduplication map
+        key_map = {}  # original row_id → tuple key
 
-        for row_id, row in full_table['rows'].items():
+        for row_id, row in full_table["rows"].items():
             k = row_key(row)
             key_map[row_id] = k
-            if k not in key2row:              # keep FIRST seen row for that key
+            if k not in key2row:  # keep FIRST seen row for that key
                 key2row[k] = row_id
 
         # build reduced copy ----------------------------------------------------
-        mini_table         = copy.deepcopy(full_table)
-        mini_table['rows'] = {rid: full_table['rows'][rid] for rid in key2row.values()}
+        mini_table = copy.deepcopy(full_table)
+        mini_table["rows"] = {rid: full_table["rows"][rid] for rid in key2row.values()}
 
-        mini_table['table']['nRows']  = len(mini_table['rows'])
-        mini_table['table']['nCells'] = len(mini_table['rows']) * len(full_table['columns'])
+        mini_table["table"]["nRows"] = len(mini_table["rows"])
+        mini_table["table"]["nCells"] = len(mini_table["rows"]) * len(
+            full_table["columns"]
+        )
 
         return mini_table, key_map
 
-    def _expand_results_to_duplicates(self,
-                                  full_table : dict,
-                                  mini_table : dict,
-                                  key_map    : dict,
-                                  main_col   : str,
-                                  extra_cols : list[str] | None = None):
+    def _expand_results_to_duplicates(
+        self,
+        full_table: dict,
+        mini_table: dict,
+        key_map: dict,
+        main_col: str,
+        extra_cols: list[str] | None = None,
+    ):
         """
         Insert the metadata obtained for every DISTINCT value back into EVERY
         row that carries the same value.
@@ -717,106 +812,124 @@ class ExtensionManager:
         extra_cols = extra_cols or []
 
         def row_key(row):
-            parts = [row['cells'][main_col]['label']]
+            parts = [row["cells"][main_col]["label"]]
             for col in extra_cols:
-                parts.append(row['cells'][col]['label'])
+                parts.append(row["cells"][col]["label"])
             return tuple(parts)
 
         # 1) build  key → metadata  lookup using the reconciled mini-table ------
         key2meta = {}
-        for row in mini_table['rows'].values():
+        for row in mini_table["rows"].values():
             k = row_key(row)
-            key2meta[k] = row['cells'][main_col]['metadata']
+            key2meta[k] = row["cells"][main_col]["metadata"]
 
         # 2) copy to *all* rows --------------------------------------------------
-        for row_id, row in full_table['rows'].items():
+        for row_id, row in full_table["rows"].items():
             k = key_map[row_id]
             if k in key2meta:
-                cell = row['cells'][main_col]
-                cell['metadata']       = copy.deepcopy(key2meta[k])
-                cell['annotationMeta'] = self._create_annotation_meta_from_metadata(
-                                            cell['metadata']
-                                        )
+                cell = row["cells"][main_col]
+                cell["metadata"] = copy.deepcopy(key2meta[k])
+                cell["annotationMeta"] = self._create_annotation_meta_from_metadata(
+                    cell["metadata"]
+                )
 
         # 3) update simple counters ---------------------------------------------
-        full_table['table']['nCellsReconciliated'] = sum(
-            1 for r in full_table['rows'].values()
-            for c in r['cells'].values()
-            if c.get('annotationMeta', {}).get('annotated', False)
+        full_table["table"]["nCellsReconciliated"] = sum(
+            1
+            for r in full_table["rows"].values()
+            for c in r["cells"].values()
+            if c.get("annotationMeta", {}).get("annotated", False)
         )
         return full_table
 
-    def extend_column(self,
-                  table              : dict,
-                  column_name        : str,
-                  extender_id        : str,
-                  properties,
-                  other_params=None,
-                  *,
-                  deduplicate        : bool = False,      # ❶ NEW
-                  extra_key_columns  : list[str] | None = None,   # optional
-                  debug=False):
+    def extend_column(
+        self,
+        table: dict,
+        column_name: str,
+        extender_id: str,
+        properties,
+        other_params=None,
+        *,
+        deduplicate: bool = False,  # ❶ NEW
+        extra_key_columns: list[str] | None = None,  # optional
+        debug=False,
+    ):
         """
         Standardised method to extend a column.  Set  deduplicate=True  to
         contact the remote extender only once per distinct value.
         """
-        other_params      = other_params or {}
-        extra_key_columns = extra_key_columns or []          # e.g. ['timestamp']
+        other_params = other_params or {}
+        extra_key_columns = extra_key_columns or []  # e.g. ['timestamp']
 
         # ------------------------------------------------------------------ ❷
         # Build a reduced table if deduplication is requested
         if deduplicate:
-            mini_table, key_map = self._build_mini_table(table, column_name, extra_key_columns)
-            working_table       = mini_table        # prepare payload for this one
+            mini_table, key_map = self._build_mini_table(
+                table, column_name, extra_key_columns
+            )
+            working_table = mini_table  # prepare payload for this one
         else:
-            working_table       = table
-            key_map             = None
+            working_table = table
+            key_map = None
 
         # ----- build the payload (unchanged) ------------------------------------
-        if extender_id == 'reconciledColumnExt':
+        if extender_id == "reconciledColumnExt":
             input_data = self._prepare_input_data_reconciled(
                 working_table, column_name, properties, extender_id
             )
-        elif extender_id == 'meteoPropertiesOpenMeteo':
-            date_column_name = other_params.get('date_column_name')
-            decimal_format   = other_params.get('decimal_format')
+        elif extender_id == "meteoPropertiesOpenMeteo":
+            date_column_name = other_params.get("date_column_name")
+            decimal_format = other_params.get("decimal_format")
             input_data = self._prepare_input_data_meteo(
-                working_table, column_name, extender_id, properties,
-                date_column_name, decimal_format
+                working_table,
+                column_name,
+                extender_id,
+                properties,
+                date_column_name,
+                decimal_format,
             )
-        elif extender_id == 'wikidataPropertySPARQL':
+        elif extender_id == "wikidataPropertySPARQL":
             input_data = self._prepare_input_data_wikidata_property(
                 working_table, column_name, properties, extender_id
             )
-        elif extender_id == 'reconciledColumnExtWikidata':
+        elif extender_id == "reconciledColumnExtWikidata":
             input_data = self._prepare_input_data_reconciled_wikidata(
                 working_table, column_name, properties, extender_id
             )
-        elif extender_id == 'llmClassifier':
+        elif extender_id == "llmClassifier":
             input_data = self._prepare_input_data_llm_classifier(
                 working_table, column_name, properties, extender_id
+            )
+        elif extender_id == "chMatching":
+            address_columns = other_params.get("address_columns", {})
+            input_data = self._prepare_input_data_ch_matching(
+                working_table, column_name, properties, extender_id, address_columns
             )
         else:
             raise ValueError(f"Unsupported extender: {extender_id}")
 
         # ----- send request -----------------------------------------------------
-        extension_response = self._send_extension_request(input_data, extender_id, debug)
+        extension_response = self._send_extension_request(
+            input_data, extender_id, debug
+        )
 
         # ------------------------------------------------------------------ ❸
         # Compose extended table (mini or full) and expand if needed
         if deduplicate:
-            mini_extended  = self._compose_extension_table(copy.deepcopy(working_table),
-                                                        extension_response)
-            full_extended  = self._expand_results_to_duplicates(
-                                full_table = copy.deepcopy(table),
-                                mini_table = mini_extended,
-                                key_map    = key_map,
-                                main_col   = column_name,
-                                extra_cols = extra_key_columns
-                            )
+            mini_extended = self._compose_extension_table(
+                copy.deepcopy(working_table), extension_response
+            )
+            full_extended = self._expand_results_to_duplicates(
+                full_table=copy.deepcopy(table),
+                mini_table=mini_extended,
+                key_map=key_map,
+                main_col=column_name,
+                extra_cols=extra_key_columns,
+            )
         else:
-            full_extended  = self._compose_extension_table(copy.deepcopy(table),
-                                                        extension_response)
+            full_extended = self._compose_extension_table(
+                copy.deepcopy(table), extension_response
+            )
 
         backend_payload = self._create_backend_payload(full_extended)
 
@@ -832,18 +945,18 @@ class ExtensionManager:
         Retrieves extender data from the backend with optional debug output.
         """
         try:
-            url = urljoin(self.api_url, 'extenders/list')
+            url = urljoin(self.api_url, "extenders/list")
             headers = self._get_headers()
             response = requests.get(url, headers=headers)
             response.raise_for_status()
-            
+
             if debug:
                 print(f"Response status code: {response.status_code}")
                 print(f"Response headers: {response.headers}")
                 print(f"Response content: {response.text[:500]}...")
-            
-            content_type = response.headers.get('Content-Type', '')
-            if 'application/json' not in content_type:
+
+            content_type = response.headers.get("Content-Type", "")
+            if "application/json" not in content_type:
                 if debug:
                     print(f"Unexpected content type: {content_type}")
                     print("Full response content:")
@@ -854,7 +967,7 @@ class ExtensionManager:
         except requests.RequestException as e:
             if debug:
                 print(f"Error occurred while retrieving extender data: {e}")
-                if hasattr(e, 'response') and e.response is not None:
+                if hasattr(e, "response") and e.response is not None:
                     print(f"Response status code: {e.response.status_code}")
                     print(f"Response content: {e.response.text[:500]}...")
             return None
@@ -863,20 +976,22 @@ class ExtensionManager:
                 print(f"JSON decoding error: {e}")
                 print(f"Raw response content: {response.text}")
             return None
-           
+
     def _clean_service_list(self, service_list):
         """
         Cleans and formats the service list into a DataFrame.
         """
         reconciliators = pd.DataFrame(columns=["id", "relativeUrl", "name"])
-        
+
         for reconciliator in service_list:
             reconciliators.loc[len(reconciliators)] = [
-                reconciliator["id"], reconciliator.get("relativeUrl", ""), reconciliator["name"]
+                reconciliator["id"],
+                reconciliator.get("relativeUrl", ""),
+                reconciliator["name"],
             ]
-        
+
         return reconciliators
-    
+
     def get_extenders(self, debug=False):
         """
         Provides a list of available extenders with their main information.
@@ -892,98 +1007,109 @@ class ExtensionManager:
             if debug:
                 print("Failed to retrieve extenders data.")
             return None
-          
+
     def get_extender_parameters(self, extender_id, print_params=False):
         """
         Retrieves and formats the parameters needed for a specific extender service.
         """
+
         def format_extender_params(param_dict):
             output = []
             output.append("=== Extender Parameters ===\n")
-            
+
             output.append("Mandatory Parameters:\n")
-            if param_dict['mandatory']:
-                for param in param_dict['mandatory']:
+            if param_dict["mandatory"]:
+                for param in param_dict["mandatory"]:
                     output.append(f"  Parameter Name: {param['name']}")
                     output.append(f"    - Type: {param['type']}")
                     output.append(f"    - Mandatory: Yes")
                     output.append(f"    - Description: {param['description']}")
                     output.append(f"    - Label: {param['label']}")
-                    if param['infoText']:
+                    if param["infoText"]:
                         output.append(f"    - Info: {param['infoText']}")
-                    if param['options']:
-                        options_str = ', '.join([opt['label'] for opt in param['options']])
+                    if param["options"]:
+                        options_str = ", ".join(
+                            [opt["label"] for opt in param["options"]]
+                        )
                         output.append(f"    - Options: {options_str}")
                     output.append("")
             else:
                 output.append("  No mandatory parameters available.\n")
-    
+
             output.append("Optional Parameters:\n")
-            if param_dict['optional']:
-                for param in param_dict['optional']:
+            if param_dict["optional"]:
+                for param in param_dict["optional"]:
                     output.append(f"  Parameter Name: {param['name']}")
                     output.append(f"    - Type: {param['type']}")
                     output.append(f"    - Mandatory: No")
                     output.append(f"    - Description: {param['description']}")
                     output.append(f"    - Label: {param['label']}")
-                    if param['infoText']:
+                    if param["infoText"]:
                         output.append(f"    - Info: {param['infoText']}")
-                    if param['options']:
-                        options_str = ', '.join([opt['label'] for opt in param['options']])
+                    if param["options"]:
+                        options_str = ", ".join(
+                            [opt["label"] for opt in param["options"]]
+                        )
                         output.append(f"    - Options: {options_str}")
                     output.append("")
             else:
                 output.append("  No optional parameters available.\n")
-    
+
             return "\n".join(output)
-        
+
         extender_data = self._get_extender_data()
         if not extender_data:
             print(f"No data found for extender ID '{extender_id}'.")
             return None
-        
+
         for extender in extender_data:
-            if extender['id'] == extender_id:
-                parameters = extender.get('formParams', [])
+            if extender["id"] == extender_id:
+                parameters = extender.get("formParams", [])
                 mandatory_params = [
                     {
-                        'name': param['id'],
-                        'type': param['inputType'],
-                        'mandatory': 'required' in param.get('rules', []),
-                        'description': param.get('description', ''),
-                        'label': param.get('label', ''),
-                        'infoText': param.get('infoText', ''),
-                        'options': param.get('options', [])
-                    } for param in parameters if 'required' in param.get('rules', [])
+                        "name": param["id"],
+                        "type": param["inputType"],
+                        "mandatory": "required" in param.get("rules", []),
+                        "description": param.get("description", ""),
+                        "label": param.get("label", ""),
+                        "infoText": param.get("infoText", ""),
+                        "options": param.get("options", []),
+                    }
+                    for param in parameters
+                    if "required" in param.get("rules", [])
                 ]
                 optional_params = [
                     {
-                        'name': param['id'],
-                        'type': param['inputType'],
-                        'mandatory': 'required' in param.get('rules', []),
-                        'description': param.get('description', ''),
-                        'label': param.get('label', ''),
-                        'infoText': param.get('infoText', ''),
-                        'options': param.get('options', [])
-                    } for param in parameters if 'required' not in param.get('rules', [])
+                        "name": param["id"],
+                        "type": param["inputType"],
+                        "mandatory": "required" in param.get("rules", []),
+                        "description": param.get("description", ""),
+                        "label": param.get("label", ""),
+                        "infoText": param.get("infoText", ""),
+                        "options": param.get("options", []),
+                    }
+                    for param in parameters
+                    if "required" not in param.get("rules", [])
                 ]
-                
+
                 param_dict = {
-                    'mandatory': mandatory_params,
-                    'optional': optional_params
+                    "mandatory": mandatory_params,
+                    "optional": optional_params,
                 }
-    
+
                 formatted_output = format_extender_params(param_dict)
-                
+
                 if print_params:
                     print(formatted_output)
-    
+
                 return formatted_output
-    
+
         print(f"Extender with ID '{extender_id}' not found.")
         return None
-    
-    def download_csv(self, dataset_id: str, table_id: str, output_file: str = "downloaded_data.csv") -> str:
+
+    def download_csv(
+        self, dataset_id: str, table_id: str, output_file: str = "downloaded_data.csv"
+    ) -> str:
         """
         Downloads a CSV file from the backend and saves it locally.
         """
@@ -996,12 +1122,18 @@ class ExtensionManager:
         if response.status_code == 200:
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(response.text)
-            print(f"CSV file has been downloaded successfully and saved as {output_file}")
+            print(
+                f"CSV file has been downloaded successfully and saved as {output_file}"
+            )
             return output_file
         else:
-            raise Exception(f"Failed to download CSV. Status code: {response.status_code}")
+            raise Exception(
+                f"Failed to download CSV. Status code: {response.status_code}"
+            )
 
-    def download_json(self, dataset_id: str, table_id: str, output_file: str = "downloaded_data.json") -> str:
+    def download_json(
+        self, dataset_id: str, table_id: str, output_file: str = "downloaded_data.json"
+    ) -> str:
         """
         Downloads a JSON file in W3C format from the backend and saves it locally.
         """
@@ -1014,31 +1146,34 @@ class ExtensionManager:
         if response.status_code == 200:
             # Parse the JSON data
             data = response.json()
-            
+
             # Save the JSON data to a file
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            
-            print(f"W3C JSON file has been downloaded successfully and saved as {output_file}")
+
+            print(
+                f"W3C JSON file has been downloaded successfully and saved as {output_file}"
+            )
             return output_file
         else:
-            raise Exception(f"Failed to download W3C JSON. Status code: {response.status_code}")
+            raise Exception(
+                f"Failed to download W3C JSON. Status code: {response.status_code}"
+            )
 
     def parse_json(self, json_data: List[Dict]) -> pd.DataFrame:
         """
         Parses the W3C JSON format into a pandas DataFrame.
         """
         # Extract column names from the first item (metadata)
-        columns = [key for key in json_data[0].keys() if key.startswith('th')]
-        column_names = [json_data[0][col]['label'] for col in columns]
+        columns = [key for key in json_data[0].keys() if key.startswith("th")]
+        column_names = [json_data[0][col]["label"] for col in columns]
 
         # Extract data rows
         data_rows = []
         for item in json_data[1:]:  # Skip the first item (metadata)
-            row = [item[col]['label'] for col in column_names]
+            row = [item[col]["label"] for col in column_names]
             data_rows.append(row)
 
         # Create DataFrame
         df = pd.DataFrame(data_rows, columns=column_names)
         return df
-    

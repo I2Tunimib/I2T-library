@@ -1144,13 +1144,8 @@ class ExtensionManager:
         response = requests.get(url, params=params, headers=self.headers)
 
         if response.status_code == 200:
-            # Parse the JSON data
-            data = response.json()
-
-            # Save the JSON data to a file
             with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-
+                f.write(response.text)
             print(
                 f"W3C JSON file has been downloaded successfully and saved as {output_file}"
             )

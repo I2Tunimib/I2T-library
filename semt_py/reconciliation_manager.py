@@ -649,7 +649,10 @@ class ReconciliationManager:
                                             ]
 
                                         processed_metadata.append(processed_item)
-                                        cell_scores.append(metadata.get("score", 0))
+                                        score = metadata.get("score")
+                                        cell_scores.append(
+                                            score if score is not None else 0
+                                        )
 
                                     cell["metadata"] = processed_metadata
 
@@ -688,9 +691,15 @@ class ReconciliationManager:
 
         # Update column annotation metadata with actual scores
         if cell_scores:
-            final_payload["columns"][column_name]["annotationMeta"].update(
-                {"lowestScore": min(cell_scores), "highestScore": max(cell_scores)}
-            )
+            # Filter out None values to avoid comparison errors
+            valid_scores = [s for s in cell_scores if s is not None]
+            if valid_scores:
+                final_payload["columns"][column_name]["annotationMeta"].update(
+                    {
+                        "lowestScore": min(valid_scores),
+                        "highestScore": max(valid_scores),
+                    }
+                )
 
         # Update table reconciliation count
         final_payload["table"]["nCellsReconciliated"] = nCellsReconciliated
@@ -855,6 +864,158 @@ class ReconciliationManager:
 
         return mini_table, key_map
 
+    def reconcile_simple(
+        self,
+        table_data: dict,
+        column_name: str,
+        reconciliator_id: str,
+        optional_columns: list[str] | None = None,
+        extra_params: dict | None = None,
+        debug: bool = False,
+    ):
+        """
+        GENERIC reconciliation method that works with ALL reconcilers.
+
+        This simplified method sends a standard payload to any reconciler service
+        and lets the backend handle service-specific logic.
+
+        :param table_data: The table data as a dict
+        :param column_name: The name of the column to reconcile
+        :param reconciliator_id: The ID of the reconciliator service
+        :param optional_columns: Optional columns to include in reconciliation
+        :param extra_params: Additional parameters to pass to the reconciler
+        :param debug: Enable debug output
+        :return: Tuple of (reconciled_table, backend_payload)
+        """
+        optional_columns = optional_columns or []
+        extra_params = extra_params or {}
+
+        # Build generic payload - works for ALL reconcilers
+        items = [{"id": column_name, "label": column_name}]
+
+        # Add all rows to items
+        for row_id, row_data in table_data["rows"].items():
+            cell_value = row_data["cells"][column_name]["label"]
+            items.append({"id": f"{row_id}${column_name}", "label": cell_value})
+
+        # Extract table and dataset IDs (required by backend for caching and tracking)
+        table_id = table_data.get("table", {}).get("id", "default_table")
+        dataset_id = "library_dataset"  # Default dataset ID for library calls
+
+        # Build base payload
+        payload = {
+            "serviceId": reconciliator_id,
+            "items": items,
+            "tableId": table_id,
+            "datasetId": dataset_id,
+            "columnName": column_name,
+            **extra_params,  # Add any extra parameters
+        }
+
+        # Add optional columns if provided
+        if optional_columns:
+            payload["optionalColumns"] = optional_columns
+
+        if debug:
+            print(f"Sending payload to reconciler '{reconciliator_id}':")
+            print(json.dumps(payload, indent=2)[:500] + "...")
+
+        # Send request to backend
+        url = urljoin(self.api_url, f"reconcilers/{reconciliator_id}")
+        headers = self._get_headers()
+
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            reconciliation_response = response.json()
+
+            if debug:
+                print(f"Received response from reconciler")
+                print(f"Response keys: {reconciliation_response.keys()}")
+
+        except requests.RequestException as e:
+            self.logger.error(f"Error calling reconciler '{reconciliator_id}': {e}")
+            return None, None
+
+        # Compose reconciled table using generic logic
+        reconciled_table = self._compose_reconciled_table_simple(
+            copy.deepcopy(table_data),
+            reconciliation_response,
+            column_name,
+            reconciliator_id,
+        )
+
+        backend_payload = self._create_backend_payload(reconciled_table)
+
+        if debug:
+            print("Reconciliation completed successfully!")
+
+        return reconciled_table, backend_payload
+
+    def _compose_reconciled_table_simple(
+        self, table_data, reconciliation_response, column_name, reconciliator_id
+    ):
+        """
+        Generic method to compose reconciled table from any reconciler response.
+        """
+        # Update column status
+        if column_name in table_data["columns"]:
+            table_data["columns"][column_name]["status"] = "reconciliated"
+
+        # Process items from response
+        items = reconciliation_response.get("items", [])
+
+        reconciliated_count = 0
+
+        for item in items:
+            item_id = item.get("id", "")
+
+            # Skip column header item
+            if item_id == column_name:
+                # Update column metadata if present
+                if "metadata" in item:
+                    table_data["columns"][column_name]["metadata"] = item["metadata"]
+                continue
+
+            # Process cell items (format: "r0$columnName")
+            if "$" in item_id:
+                row_id = item_id.split("$")[0]
+
+                if row_id in table_data["rows"]:
+                    cell_metadata = item.get("metadata", [])
+
+                    # Update cell with metadata
+                    if column_name in table_data["rows"][row_id]["cells"]:
+                        table_data["rows"][row_id]["cells"][column_name]["metadata"] = (
+                            cell_metadata
+                        )
+
+                        # Create annotationMeta
+                        if cell_metadata and len(cell_metadata) > 0:
+                            reconciliated_count += 1
+                            best_match = cell_metadata[0]
+                            table_data["rows"][row_id]["cells"][column_name][
+                                "annotationMeta"
+                            ] = {
+                                "annotated": True,
+                                "match": {
+                                    "id": best_match.get("id", ""),
+                                    "name": best_match.get("name", ""),
+                                    "score": best_match.get("score", 0),
+                                    "match": best_match.get("match", False),
+                                    "value": True,
+                                },
+                            }
+                        else:
+                            table_data["rows"][row_id]["cells"][column_name][
+                                "annotationMeta"
+                            ] = {"annotated": False, "match": {"value": False}}
+
+        # Update table counts
+        table_data["table"]["nCellsReconciliated"] = reconciliated_count
+
+        return table_data
+
     def reconcile(
         self,
         table_data: dict,
@@ -867,6 +1028,10 @@ class ReconciliationManager:
         """
         Perform reconciliation – optionally deduplicating identical values
         before the remote call.
+
+        NOTE: This is the legacy method with service-specific logic.
+        For a simpler, generic approach that works with all reconcilers,
+        use reconcile_simple() instead.
         """
         optional_columns = optional_columns or []
 

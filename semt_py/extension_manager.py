@@ -842,6 +842,80 @@ class ExtensionManager:
         )
         return full_table
 
+    def extend_simple(
+        self,
+        table: dict,
+        column_name: str,
+        extender_id: str,
+        properties: list | dict,
+        other_params: dict | None = None,
+        debug: bool = False,
+    ):
+        """
+        GENERIC extension method that works with ALL extenders.
+
+        This simplified method sends a standard payload to any extender service
+        and lets the backend handle service-specific logic.
+
+        :param table: The table data as a dict
+        :param column_name: The name of the column to extend from
+        :param extender_id: The ID of the extender service
+        :param properties: Properties to extend (list or dict depending on extender)
+        :param other_params: Additional parameters to pass to the extender
+        :param debug: Enable debug output
+        :return: Tuple of (extended_table, backend_payload)
+        """
+        other_params = other_params or {}
+
+        # Build generic payload - works for ALL extenders
+        payload = {
+            "serviceId": extender_id,
+            "columnName": column_name,
+            "properties": properties,
+            **other_params,  # Add any extra parameters
+        }
+
+        # Add table data to payload
+        payload["table"] = table
+
+        if debug:
+            print(f"Sending payload to extender '{extender_id}':")
+            print(f"Properties: {properties}")
+            print(f"Other params: {other_params}")
+
+        # Send request to backend
+        url = urljoin(self.api_url, "extenders")
+        headers = self._get_headers()
+
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            extension_response = response.json()
+
+            if debug:
+                print(f"Received response from extender")
+                print(f"Response keys: {extension_response.keys()}")
+
+        except requests.RequestException as e:
+            print(f"Error calling extender '{extender_id}': {e}")
+            if hasattr(e, "response") and e.response is not None:
+                print(f"Response: {e.response.text[:500]}")
+            return None, None
+
+        # Compose extended table using the generic compose method
+        extended_table = self._compose_extension_table(
+            copy.deepcopy(table), extension_response
+        )
+
+        backend_payload = self._create_backend_payload(extended_table)
+
+        if debug:
+            print("Extension completed successfully!")
+        else:
+            print("Column extended successfully!")
+
+        return extended_table, backend_payload
+
     def extend_column(
         self,
         table: dict,

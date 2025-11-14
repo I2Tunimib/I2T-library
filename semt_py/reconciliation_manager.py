@@ -764,15 +764,21 @@ class ReconciliationManager:
 
                     # Collect scores for min/max calculation
                     if "lowestScore" in cell_annotation_meta:
-                        all_scores.append(cell_annotation_meta["lowestScore"])
+                        score = cell_annotation_meta["lowestScore"]
+                        if score is not None:
+                            all_scores.append(score)
                     if "highestScore" in cell_annotation_meta:
-                        all_scores.append(cell_annotation_meta["highestScore"])
+                        score = cell_annotation_meta["highestScore"]
+                        if score is not None:
+                            all_scores.append(score)
 
                     # Also check metadata for scores as fallback
                     if "metadata" in cell and cell["metadata"]:
                         for metadata_item in cell["metadata"]:
                             if "score" in metadata_item:
-                                all_scores.append(metadata_item["score"])
+                                score = metadata_item["score"]
+                                if score is not None:
+                                    all_scores.append(score)
 
         # Calculate min and max scores
         if all_scores:
@@ -815,8 +821,12 @@ class ReconciliationManager:
         if not metadata_list:  # no result → not annotated
             return {"annotated": False, "match": {"value": False}}
 
-        # collect scores & match flags
-        scores = [m.get("score", 0) for m in metadata_list if "score" in m]
+        # collect scores & match flags (filter out None values)
+        scores = [
+            m.get("score", 0)
+            for m in metadata_list
+            if "score" in m and m.get("score") is not None
+        ]
         best_match = any(m.get("match", False) for m in metadata_list)
 
         return {

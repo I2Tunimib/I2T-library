@@ -1,12 +1,14 @@
-import pandas as pd
-from dateutil import parser
-import re
-import requests
-import json
 import copy
+import json
+import re
+from typing import Any, Dict, Optional
 from urllib.parse import urljoin
+
+import pandas as pd
+import requests
+from dateutil import parser
+
 from .auth_manager import AuthManager
-from typing import Dict, Any, Optional
 
 
 class ModificationManager:
@@ -129,6 +131,8 @@ class ModificationManager:
             if not metadata_id:
                 raise ValueError("type_object must contain 'id' key.")
 
+            # When propagating, always set match to True
+            # The user is explicitly choosing to propagate this type to matching cells
             current_match_val = True
 
             for row_key, row_value in rows_data.items():
@@ -153,13 +157,14 @@ class ModificationManager:
                                 if meta["id"] != metadata_id:
                                     meta["match"] = False
                     else:
-                        # Add new metadata
-                        cell["metadata"].append(type_dict)
-                        # If new one is matched, set others to false
-                        if current_match_val:
-                            for meta in cell["metadata"]:
-                                if meta["id"] != metadata_id:
-                                    meta["match"] = False
+                        # Add new metadata with match set to True
+                        new_metadata = type_dict.copy()
+                        new_metadata["match"] = True
+                        cell["metadata"].append(new_metadata)
+                        # Set all other metadata items to not matched
+                        for meta in cell["metadata"]:
+                            if meta["id"] != metadata_id:
+                                meta["match"] = False
 
                     # Update annotationMeta
                     if "annotationMeta" not in cell:

@@ -1,12 +1,14 @@
-import requests
-import json
 import copy
 import datetime
-import pandas as pd
-from urllib.parse import urljoin
-from .auth_manager import AuthManager
-from typing import Dict, Any, Optional
+import json
 import logging
+from typing import Any, Dict, Optional
+from urllib.parse import urljoin
+
+import pandas as pd
+import requests
+
+from .auth_manager import AuthManager
 
 
 class ReconciliationManager:
@@ -931,10 +933,26 @@ class ReconciliationManager:
 
             if debug:
                 print(f"Received response from reconciler")
-                print(f"Response keys: {reconciliation_response.keys()}")
+                if isinstance(reconciliation_response, dict):
+                    print(f"Response keys: {reconciliation_response.keys()}")
+                elif isinstance(reconciliation_response, list):
+                    print(
+                        f"Response is a list with {len(reconciliation_response)} items"
+                    )
+                else:
+                    print(f"Response type: {type(reconciliation_response)}")
 
         except requests.RequestException as e:
             self.logger.error(f"Error calling reconciler '{reconciliator_id}': {e}")
+            return None, None
+
+        # Check for errors in response
+        if isinstance(reconciliation_response, dict) and reconciliation_response.get(
+            "error"
+        ):
+            self.logger.error(
+                f"Reconciler '{reconciliator_id}' returned error: {reconciliation_response.get('error')}"
+            )
             return None, None
 
         # Compose reconciled table using generic logic
@@ -963,7 +981,24 @@ class ReconciliationManager:
             table_data["columns"][column_name]["status"] = "reconciliated"
 
         # Process items from response
-        items = reconciliation_response.get("items", [])
+        # Handle both formats:
+        # 1. {"items": [...]} - explicit items key
+        # 2. {0: {...}, 1: {...}, ...} - spread array from backend (numeric keys)
+        # 3. [...] - direct array (legacy format)
+        if isinstance(reconciliation_response, list):
+            items = reconciliation_response
+        elif "items" in reconciliation_response:
+            items = reconciliation_response["items"]
+        else:
+            # Backend spreads array as {0: item0, 1: item1, ...}
+            # Convert numeric keys back to array
+            items = []
+            for key in sorted(
+                reconciliation_response.keys(),
+                key=lambda x: int(x) if str(x).isdigit() else float("inf"),
+            ):
+                if str(key).isdigit():
+                    items.append(reconciliation_response[key])
 
         reconciliated_count = 0
 

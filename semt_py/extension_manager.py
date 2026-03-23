@@ -1,12 +1,14 @@
-import requests
-import json
 import copy
+import json
 import re
-import pandas as pd
-from urllib.parse import urljoin
 from copy import deepcopy
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urljoin
+
+import pandas as pd
+import requests
+
 from .auth_manager import AuthManager
-from typing import Dict, Any, Optional, Tuple, List
 
 
 class ExtensionManager:
@@ -661,7 +663,10 @@ class ExtensionManager:
             orig_col = extension_response["originalColMeta"]["originalColName"]
             if orig_col in table["columns"]:
                 table["columns"][orig_col]["kind"] = "entity"
-                main_md = table["columns"][orig_col]["metadata"][0]
+                col_meta = table["columns"][orig_col]["metadata"]
+                if not col_meta:
+                    col_meta.append({})
+                main_md = col_meta[0]
 
                 main_md.setdefault("property", [])
                 for prop in extension_response["originalColMeta"].get("properties", []):
@@ -847,43 +852,99 @@ class ExtensionManager:
         table: dict,
         column_name: str,
         extender_id: str,
-        properties: list | dict,
+        properties: Any = None,
         other_params: dict | None = None,
         debug: bool = False,
     ):
         """
-        GENERIC extension method that works with ALL extenders.
+        Simple generic extension method - no custom logic, no parameter validation.
 
-        This simplified method sends a standard payload to any extender service
-        and lets the backend handle service-specific logic.
+        This method converts the table to the backend's expected format (items + props)
+        and sends it to the extender service. NO VALIDATION. NO SPECIAL HANDLING.
+
+        PHILOSOPHY:
+        - User provides table + column + extender_id + any params
+        - We convert table to items format: {"columnName": {"rowId": "value"}}
+        - We merge properties and other_params into the payload
+        - We send it to the backend
+        - If parameters are wrong or missing, backend rejects it
+        - That's the user's problem, not ours
+
+        GENERIC CONVERSION:
+        - For reconciled columns: extracts entity ID from metadata
+        - For regular columns: extracts cell label value
+        - No special logic based on extender_id
+        - No parameter fixing or transformation
+
+        EXAMPLES:
+
+        # Wikidata property extension
+        extend_simple(
+            table=my_table,
+            column_name="City",  # Must be reconciled first!
+            extender_id="reconciledColumnExt",
+            other_params={"property": ["P1082"]}  # population
+        )
+
+        # Meteo data extension
+        extend_simple(
+            table=my_table,
+            column_name="Location",  # Must have geo coordinates in metadata
+            extender_id="meteoPropertiesOpenMeteo",
+            other_params={
+                "dates": {"r0": ["2024-01-15"], "r1": ["2024-01-16"]},
+                "granularity": "daily",
+                "weatherParams_daily": ["temperature_2m_max"]
+            }
+        )
 
         :param table: The table data as a dict
         :param column_name: The name of the column to extend from
         :param extender_id: The ID of the extender service
-        :param properties: Properties to extend (list or dict depending on extender)
-        :param other_params: Additional parameters to pass to the extender
+        :param properties: Whatever properties the extender needs (merged into payload)
+        :param other_params: Additional parameters to merge into payload
         :param debug: Enable debug output
-        :return: Tuple of (extended_table, backend_payload)
+        :return: Tuple of (extended_table, backend_payload) or (None, None) on error
         """
         other_params = other_params or {}
 
-        # Build generic payload - works for ALL extenders
+        # Convert table to items format - simple, generic, no special logic
+        # items = { "columnName": { "rowId": "value" } }
+        items = {column_name: {}}
+
+        for row_id, row in table["rows"].items():
+            if column_name in row["cells"]:
+                cell = row["cells"][column_name]
+                # Check if it's a reconciled column (has metadata with entity ID)
+                if "metadata" in cell and cell["metadata"]:
+                    # Use entity ID from metadata
+                    entity_id = cell["metadata"][0].get("id", "")
+                    if entity_id:
+                        items[column_name][row_id] = entity_id
+                else:
+                    # Use the cell label value
+                    items[column_name][row_id] = cell.get("label", "")
+
+        # Build payload in backend's expected format
         payload = {
             "serviceId": extender_id,
-            "columnName": column_name,
-            "properties": properties,
-            **other_params,  # Add any extra parameters
+            "items": items,
         }
 
-        # Add table data to payload
-        payload["table"] = table
+        # Add properties if provided
+        if properties is not None:
+            payload["properties"] = properties
+
+        # Merge any additional parameters directly into payload
+        payload.update(other_params)
 
         if debug:
-            print(f"Sending payload to extender '{extender_id}':")
-            print(f"Properties: {properties}")
-            print(f"Other params: {other_params}")
+            print(f"[extend_simple] Sending to extender '{extender_id}'")
+            print(f"[extend_simple] Column: {column_name}")
+            print(f"[extend_simple] Rows: {len(items[column_name])}")
+            print(f"[extend_simple] Payload keys: {list(payload.keys())}")
 
-        # Send request to backend
+        # Send to backend - single endpoint for all extenders
         url = urljoin(self.api_url, "extenders")
         headers = self._get_headers()
 
@@ -893,26 +954,27 @@ class ExtensionManager:
             extension_response = response.json()
 
             if debug:
-                print(f"Received response from extender")
-                print(f"Response keys: {extension_response.keys()}")
+                print(f"[extend_simple] Response received")
+                print(
+                    f"[extend_simple] Response keys: {list(extension_response.keys())}"
+                )
 
         except requests.RequestException as e:
-            print(f"Error calling extender '{extender_id}': {e}")
+            print(f"[ERROR] Extender '{extender_id}' failed: {e}")
             if hasattr(e, "response") and e.response is not None:
-                print(f"Response: {e.response.text[:500]}")
+                print(f"[ERROR] Response: {e.response.text[:500]}")
             return None, None
 
-        # Compose extended table using the generic compose method
+        # Compose extended table
         extended_table = self._compose_extension_table(
             copy.deepcopy(table), extension_response
         )
 
+        # Create backend payload
         backend_payload = self._create_backend_payload(extended_table)
 
         if debug:
-            print("Extension completed successfully!")
-        else:
-            print("Column extended successfully!")
+            print("[extend_simple] Extension completed successfully")
 
         return extended_table, backend_payload
 
@@ -946,41 +1008,22 @@ class ExtensionManager:
             working_table = table
             key_map = None
 
-        # ----- build the payload (unchanged) ------------------------------------
-        if extender_id == "reconciledColumnExt":
-            input_data = self._prepare_input_data_reconciled(
-                working_table, column_name, properties, extender_id
-            )
-        elif extender_id == "meteoPropertiesOpenMeteo":
-            date_column_name = other_params.get("date_column_name")
-            decimal_format = other_params.get("decimal_format")
-            input_data = self._prepare_input_data_meteo(
-                working_table,
-                column_name,
-                extender_id,
-                properties,
-                date_column_name,
-                decimal_format,
-            )
-        elif extender_id == "wikidataPropertySPARQL":
-            input_data = self._prepare_input_data_wikidata_property(
-                working_table, column_name, properties, extender_id
-            )
-        elif extender_id == "reconciledColumnExtWikidata":
-            input_data = self._prepare_input_data_reconciled_wikidata(
-                working_table, column_name, properties, extender_id
-            )
-        elif extender_id == "llmClassifier":
-            input_data = self._prepare_input_data_llm_classifier(
-                working_table, column_name, properties, extender_id
-            )
-        elif extender_id == "chMatching":
-            address_columns = other_params.get("address_columns", {})
-            input_data = self._prepare_input_data_ch_matching(
-                working_table, column_name, properties, extender_id, address_columns
-            )
-        else:
-            raise ValueError(f"Unsupported extender: {extender_id}")
+        # ----- build the payload generically – works with any extender ----------
+        items = {column_name: {}}
+        for row_id, row in working_table["rows"].items():
+            if column_name in row["cells"]:
+                cell = row["cells"][column_name]
+                if "metadata" in cell and cell["metadata"]:
+                    entity_id = cell["metadata"][0].get("id", "")
+                    if entity_id:
+                        items[column_name][row_id] = entity_id
+                else:
+                    items[column_name][row_id] = cell.get("label", "")
+
+        input_data = {"serviceId": extender_id, "items": items}
+        if properties is not None:
+            input_data["properties"] = properties
+        input_data.update(other_params)
 
         # ----- send request -----------------------------------------------------
         extension_response = self._send_extension_request(

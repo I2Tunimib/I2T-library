@@ -36,6 +36,14 @@ Homepage = "https://github.com/I2Tunimib/I2T-library"
 Repository = "https://github.com/I2Tunimib/I2T-library.git"
 Issues = "https://github.com/I2Tunimib/I2T-library/issues"
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+    "requests-mock>=1.12",
+    "PyJWT>=2.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["semt_py"]
 
@@ -45,3 +53,10 @@ include = [
     "/README.md",
     "/LICENSE"
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

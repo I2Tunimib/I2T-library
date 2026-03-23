@@ -340,12 +340,17 @@ class ModificationManager:
                 "ModificationManager not initialized for backend operations."
             )
 
-        # Prepare input data
-        items = {column_name: {}}
+        # Prepare input data — include all selectedColumns so multi-column
+        # operations (e.g. joinOp) receive every column they need.
+        selected_cols = props.get("selectedColumns", [])
+        all_cols = list(dict.fromkeys([column_name] + list(selected_cols)))
+        items = {col: {} for col in all_cols}
         for row_id, row in table["rows"].items():
-            if column_name in row["cells"]:
-                cell_value = row["cells"][column_name]["label"]
-                items[column_name][row_id] = [cell_value]  # Backend expects array
+            for col in all_cols:
+                if col in row["cells"]:
+                    items[col][row_id] = [
+                        row["cells"][col]["label"]
+                    ]  # Backend expects array
 
         payload = {
             "serviceId": modifier_name,
@@ -455,6 +460,29 @@ class ModificationManager:
                                 table["rows"][row_id]["cells"][col_name]["metadata"] = (
                                     cell_data["metadata"]
                                 )
+
+        # Handle row-replacing responses (e.g. textRows splits one row into many)
+        if "rows" in modification_response:
+            new_rows = {}
+            for row_id, row_data in modification_response["rows"].items():
+                new_rows[row_id] = {
+                    "id": row_id,
+                    "cells": {
+                        col: {
+                            "id": f"{row_id}${col}",
+                            "label": cell_data.get("label", ""),
+                            "metadata": cell_data.get("metadata", []),
+                            "annotationMeta": {
+                                "annotated": False,
+                                "match": {"value": False},
+                            },
+                        }
+                        for col, cell_data in row_data.get("cells", {}).items()
+                    },
+                }
+            table["rows"] = new_rows
+            table["table"]["nRows"] = len(new_rows)
+            table["table"]["nCells"] = len(new_rows) * len(table["columns"])
 
         # Update table timestamp
         table["table"]["lastModifiedDate"] = copy.deepcopy(table["table"]).get(

@@ -1,15 +1,17 @@
-import requests
 import json
-import pandas as pd
-import os
-import time
-from urllib.parse import urljoin
-from fake_useragent import UserAgent
-from .auth_manager import AuthManager
 import logging
+import os
 import tempfile
+import time
 import zipfile
-from requests.exceptions import RequestException, JSONDecodeError
+from urllib.parse import urljoin
+
+import pandas as pd
+import requests
+from fake_useragent import UserAgent
+from requests.exceptions import JSONDecodeError, RequestException
+
+from .auth_manager import AuthManager
 
 
 class TableManager:
@@ -25,7 +27,7 @@ class TableManager:
         :param Auth_manager: An instance of TokenManager to handle authentication.
         """
         self.base_url = base_url.rstrip("/") + "/"
-        self.api_url = urljoin(self.base_url, "api/")
+        self.api_url = urljoin(self.base_url, "api")
         self.Auth_manager = Auth_manager
         self.user_agent = UserAgent()
         self.logger = logging.getLogger(__name__)
